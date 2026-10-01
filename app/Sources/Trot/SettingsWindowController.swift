@@ -20,7 +20,9 @@ final class SettingsWindowController: NSWindowController {
             tabs.addTabViewItem(item)
         }
         let window = NSWindow(contentViewController: tabs)
-        window.title = "Trot Settings"
+        // The toolbar tabs put the pane's name in the title bar from the
+        // second pane on; starting with it keeps the title consistent.
+        window.title = tabs.tabViewItems.first?.label ?? "Settings"
         window.styleMask = [.titled, .closable]
         window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false

@@ -27,6 +27,10 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     private static let mouseGap: CGFloat = 12
 
     private let glass = NSGlassEffectView()
+    /// Everything in the card, top to bottom. Pinned to the top of the
+    /// glass only, so the window can animate to the column's height
+    /// without a frame where the two disagree.
+    private let column = NSStackView()
     private let languageButton = NSButton()
     private let servicePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let pinButton = NSButton()
@@ -54,7 +58,9 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     private var cursorVisible = true
     /// How much smaller the card starts as it fades in.
     private static let entranceScale: CGFloat = 0.96
-    private let speaker = Speaker()
+    /// Made on the first use: the synthesizer loads voices, which the
+    /// panel's first appearance has no need of.
+    private var speaker: Speaker?
 
     private(set) var mode: Mode = .result
     private(set) var isPinned = false { didSet { showPinState() } }
@@ -109,7 +115,6 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         build()
-        speaker.onChange = { [weak self] in self?.showSpeakState() }
     }
 
     override var canBecomeKey: Bool { true }
@@ -117,7 +122,6 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     // MARK: Layout
 
     private func build() {
-        let column = NSStackView()
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 10
@@ -211,8 +215,16 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
             placeholder.topAnchor.constraint(equalTo: sourceScroll.topAnchor, constant: 1),
         ])
 
+        let host = NSView()
+        host.addSubview(column)
+        column.translatesAutoresizingMaskIntoConstraints = false
+        // The column tells the window how tall to be; while the window
+        // animates there, the host is shorter or taller than the column
+        // for a few frames, which a required bottom constraint would fight.
+        let bottom = column.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+        bottom.priority = .defaultLow
         glass.cornerRadius = 18
-        glass.contentView = column
+        glass.contentView = host
         glass.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
         root.wantsLayer = true
@@ -222,6 +234,10 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
             glass.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             glass.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             glass.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            column.topAnchor.constraint(equalTo: host.topAnchor),
+            column.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            column.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            bottom,
             column.widthAnchor.constraint(equalToConstant: Self.width),
         ])
         contentView = root
@@ -406,7 +422,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     private func clearResult() {
-        speaker.stop()
+        speaker?.stop()
         stopBlinking()
         resultText = ""
         pendingChunks = ""
@@ -500,7 +516,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     @objc private func closePanel(_ sender: Any?) {
-        speaker.stop()
+        speaker?.stop()
         stopBlinking()
         removeClickMonitor()
         isPinned = false
@@ -548,6 +564,13 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
+    /// How long the card takes to grow to new text. Short enough that a
+    /// stream of chunks reads as one motion, long enough to see.
+    private static let growDuration: TimeInterval = 0.14
+
+    /// Grows or shrinks the card to its content with the top edge still,
+    /// animated, so text streaming in pushes the bottom down smoothly
+    /// rather than in jumps. A new target during the animation retargets it.
     private func resizeKeepingTop() {
         let size = fittingSize
         var frame = frame
@@ -557,13 +580,20 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         if let visible = screen?.visibleFrame, frame.minY < visible.minY + 8 {
             frame.origin.y = visible.minY + 8
         }
-        setFrame(frame, display: true)
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            setFrame(frame, display: true)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.growDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(frame, display: true)
+        }
     }
 
     private var fittingSize: NSSize {
-        contentView?.layoutSubtreeIfNeeded()
-        let height = contentView?.fittingSize.height ?? 160
-        return NSSize(width: Self.width, height: ceil(height))
+        column.layoutSubtreeIfNeeded()
+        return NSSize(width: Self.width, height: ceil(column.fittingSize.height))
     }
 
     /// Sizes each text view to its text, up to a share of the screen, hides
@@ -621,7 +651,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     private func showSpeakState() {
-        let speaking = speaker.isSpeaking
+        let speaking = speaker?.isSpeaking ?? false
         speakButton.image = NSImage(systemSymbolName: speaking ? "stop.fill" : "speaker.wave.2", accessibilityDescription: "Speak")?
             .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
         speakButton.contentTintColor = speaking ? .controlAccentColor : .secondaryLabelColor
@@ -656,11 +686,16 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     @objc private func speakResult(_ sender: Any?) {
-        if speaker.isSpeaking {
+        if let speaker, speaker.isSpeaking {
             speaker.stop()
-        } else {
-            speaker.speak(resultText, in: target)
+            return
         }
+        let speaker = self.speaker ?? Speaker()
+        if self.speaker == nil {
+            speaker.onChange = { [weak self] in self?.showSpeakState() }
+            self.speaker = speaker
+        }
+        speaker.speak(resultText, in: target)
     }
 
     @objc private func copyResult(_ sender: Any?) {
