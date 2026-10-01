@@ -53,7 +53,7 @@ At the first launch macOS asks for Accessibility access, which reading the selec
 | `scripts/test.sh` | Runs the tests, with the Command Line Tools or Xcode. |
 | `scripts/release.sh` | Tests, builds and zips a release. |
 | `scripts/mock-service.py` | An OpenAI-compatible fake that streams, fails or answers in one piece. |
-| `scripts/make-icon.swift` | Renders the app icon. |
+| `scripts/make-icon.swift` | Cuts the app icon and `.icns` out of `app/Resources/Trot-artwork.png`. |
 | `.github/workflows/ci.yml` | Builds and tests on every push. |
 
 ## Documentation
