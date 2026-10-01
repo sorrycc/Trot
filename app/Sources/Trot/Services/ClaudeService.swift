@@ -72,7 +72,7 @@ struct ClaudeService: TranslationService {
             }
     }
 
-    private static func isClaude5(_ model: String) -> Bool {
+    static func isClaude5(_ model: String) -> Bool {
         ["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-mythos-5"].contains { model.hasPrefix($0) }
     }
 }

@@ -23,9 +23,10 @@ enum ScreenOCR {
         NSWorkspace.shared.open(url)
     }
 
-    /// Nil when the capture is cancelled with Escape.
+    /// The screenshot the user drew, as a file for `recognize`, or nil when
+    /// the capture was cancelled with Escape.
     @MainActor
-    static func capture() async throws -> String? {
+    static func capture() async throws -> URL? {
         // Without the permission screencapture still runs, but the image
         // holds only the wallpaper, so the failure would look like no text.
         guard CGPreflightScreenCaptureAccess() else {
@@ -34,14 +35,26 @@ enum ScreenOCR {
         }
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("trot-\(UUID().uuidString)").appendingPathExtension("png")
-        defer { try? FileManager.default.removeItem(at: file) }
         let status = try await runScreencapture(to: file)
         guard FileManager.default.fileExists(atPath: file.path) else {
             // Escape leaves no file and exits 1; anything else is a failure.
             if status > 1 { throw Failure.captureFailed(status) }
             return nil
         }
-        let text = try await recognize(file)
+        return file
+    }
+
+    /// The text in the screenshot, joined into paragraphs. The file is
+    /// deleted afterwards.
+    static func recognize(_ file: URL) async throws -> String {
+        defer { try? FileManager.default.removeItem(at: file) }
+        var request = RecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.automaticallyDetectsLanguage = true
+        request.recognitionLanguages = ["zh-Hans", "zh-Hant", "ja", "ko", "en"].map { Locale.Language(identifier: $0) }
+        let observations = try await request.perform(on: file)
+        let text = joinLines(observations.compactMap { $0.topCandidates(1).first?.string })
         guard !text.isEmpty else { throw Failure.noText }
         return text
     }
@@ -62,20 +75,9 @@ enum ScreenOCR {
         }
     }
 
-    private static func recognize(_ file: URL) async throws -> String {
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
-        request.recognitionLanguages = ["zh-Hans", "zh-Hant", "ja", "ko", "en"].map { Locale.Language(identifier: $0) }
-        let observations = try await request.perform(on: file)
-        let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-        return joinLines(lines)
-    }
-
-    /// Lines of one paragraph become one line: CJK text joins directly,
-    /// everything else with a space. A line ending in sentence punctuation
-    /// keeps its break.
+    /// Lines of one paragraph become one line: Chinese and Japanese join
+    /// directly, everything else, Korean included, with a space. A line
+    /// ending in sentence punctuation keeps its break.
     static func joinLines(_ lines: [String]) -> String {
         var result = ""
         for line in lines {
@@ -85,7 +87,7 @@ enum ScreenOCR {
                 result = trimmed
             } else if let last = result.last, ".!?。！？:：".contains(last) {
                 result += "\n" + trimmed
-            } else if isCJK(result.last) || isCJK(trimmed.first) {
+            } else if joinsWithoutSpace(result.last) || joinsWithoutSpace(trimmed.first) {
                 result += trimmed
             } else {
                 result += " " + trimmed
@@ -94,10 +96,11 @@ enum ScreenOCR {
         return result
     }
 
-    private static func isCJK(_ character: Character?) -> Bool {
+    /// Han, kana and CJK punctuation: scripts written without spaces.
+    private static func joinsWithoutSpace(_ character: Character?) -> Bool {
         guard let scalar = character?.unicodeScalars.first else { return false }
         switch scalar.value {
-        case 0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xAC00...0xD7AF, 0x3000...0x303F, 0xFF00...0xFFEF: return true
+        case 0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0x3000...0x303F, 0xFF00...0xFFEF: return true
         default: return false
         }
     }

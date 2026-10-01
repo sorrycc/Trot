@@ -23,6 +23,16 @@ struct HTTPTests {
         #expect(HTTP.errorMessage(in: Data(page.utf8)) == "")
     }
 
+    @Test func baseURLsAreTidied() {
+        #expect(ServiceKind.normalizedBaseURL("api.openai.com/v1", for: .openAI) == "https://api.openai.com/v1")
+        #expect(ServiceKind.normalizedBaseURL("https://api.openai.com/v1/chat/completions", for: .openAI) == "https://api.openai.com/v1")
+        #expect(ServiceKind.normalizedBaseURL("https://api.openai.com/v1//", for: .openAI) == "https://api.openai.com/v1")
+        #expect(ServiceKind.normalizedBaseURL("https://api.anthropic.com/v1", for: .claude) == "https://api.anthropic.com")
+        #expect(ServiceKind.normalizedBaseURL("https://api.anthropic.com/v1/messages", for: .claude) == "https://api.anthropic.com")
+        #expect(ServiceKind.normalizedBaseURL("http://localhost:11434/v1", for: .openAI) == "http://localhost:11434/v1")
+        #expect(ServiceKind.normalizedBaseURL("  ", for: .openAI) == "")
+    }
+
     @Test func baseURLLosesItsTrailingSlash() {
         #expect(ServiceConfig(baseURL: "https://api.openai.com/v1/", apiKey: "", model: "").trimmedBaseURL == "https://api.openai.com/v1")
         #expect(ServiceConfig(baseURL: "https://api.openai.com/v1", apiKey: "", model: "").trimmedBaseURL == "https://api.openai.com/v1")
@@ -58,6 +68,21 @@ struct ServiceTests {
         }
     }
 
+    @Test func serviceLanguageCodesMatchTheirAPIs() {
+        #expect(DeepLService.targetCode(.english) == "EN-US")
+        #expect(DeepLService.targetCode(.chineseSimplified) == "ZH-HANS")
+        #expect(DeepLService.targetCode(.german) == "DE")
+        #expect(DeepLService.sourceCode(.chineseTraditional) == "ZH")
+        #expect(GoogleService.code(.chineseTraditional) == "zh-TW")
+        #expect(GoogleService.code(.japanese) == "ja")
+    }
+
+    @Test func claude5ModelsAreToldApart() {
+        #expect(ClaudeService.isClaude5("claude-opus-5-5"))
+        #expect(ClaudeService.isClaude5("claude-sonnet-5-5"))
+        #expect(!ClaudeService.isClaude5("claude-3-5-sonnet-latest"))
+    }
+
     @Test func thePromptNamesTheLanguages() {
         let prompt = TranslationPrompt.system(from: .english, to: .chineseSimplified)
         #expect(prompt.contains("from English"))
@@ -67,8 +92,13 @@ struct ServiceTests {
 
     @Test func errorsReadAsSentences() {
         #expect(TranslationError.missingKey(.deepL).localizedDescription == "DeepL needs an API key.")
-        #expect(TranslationError.http(503, "").localizedDescription == "HTTP 503")
         #expect(TranslationError.http(401, "bad key").localizedDescription == "HTTP 401: bad key")
+        // A status without a message gets a sentence of its own.
+        #expect(TranslationError.http(503, "").localizedDescription.contains("(HTTP 503)"))
+        #expect(TranslationError.http(401, "").localizedDescription.contains("API key"))
+        #expect(TranslationError.http(404, "").localizedDescription.contains("base URL"))
+        #expect(TranslationError.http(413, "").localizedDescription.contains("too long"))
+        #expect(TranslationError.http(418, "").localizedDescription == "HTTP 418")
         #expect(TranslationError.notAStream(Data("<html>".utf8)).localizedDescription.contains("base URL"))
         #expect(TranslationError.notAStream(Data(#"{"error":{"message":"Not found"}}"#.utf8)).localizedDescription == "Not found")
     }

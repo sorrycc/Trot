@@ -39,6 +39,19 @@ struct LanguageTests {
         #expect(Language.detect("The word 你好 means hello in Chinese, as everyone learns first.") == .english)
     }
 
+    @Test func otherScriptsAreRecognized() {
+        #expect(Language.detect("مرحبا بالعالم، هذه جملة للاختبار.") == .arabic)
+        #expect(Language.detect("Привет, мир! Это предложение для проверки.") == .russian)
+        #expect(Language.detect("สวัสดีชาวโลก นี่คือประโยคทดสอบ") == .thai)
+    }
+
+    @Test func onlyScriptsNobodyMistakesAreCertain() {
+        #expect(Language.chineseSimplified.isScriptCertain)
+        #expect(Language.korean.isScriptCertain)
+        #expect(!Language.english.isScriptCertain)
+        #expect(!Language.french.isScriptCertain)
+    }
+
     @Test func emptyAndBlankTextHaveNoLanguage() {
         #expect(Language.detect("") == nil)
         #expect(Language.detect("   \n\t") == nil)

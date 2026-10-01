@@ -114,6 +114,14 @@ enum Language: String, CaseIterable, Codable, Sendable {
         self = match
     }
 
+    /// Languages the script alone identifies, so detection is never a guess.
+    var isScriptCertain: Bool {
+        switch self {
+        case .chineseSimplified, .chineseTraditional, .japanese, .korean, .thai, .arabic, .russian: true
+        default: false
+        }
+    }
+
     /// Whether the two are the same language apart from script, so Chinese
     /// detected as traditional still counts as the user's Chinese.
     func sameFamily(as other: Language) -> Bool {
@@ -130,7 +138,8 @@ enum Language: String, CaseIterable, Codable, Sendable {
     static func detect(_ text: String, preferredChinese: Language = .chineseSimplified) -> Language? {
         // The first few hundred characters say what language a text is in;
         // reading a whole article would only make a long selection slower.
-        let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(detectionLimit))
+        // The prefix comes first, so a long text is never copied whole.
+        let trimmed = String(text.prefix(detectionLimit + 64).trimmingCharacters(in: .whitespacesAndNewlines).prefix(detectionLimit))
         guard !trimmed.isEmpty else { return nil }
         if let scripted = detectByScript(trimmed, preferredChinese: preferredChinese) { return scripted }
         let recognizer = NLLanguageRecognizer()

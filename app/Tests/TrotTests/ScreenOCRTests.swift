@@ -22,6 +22,10 @@ struct ScreenOCRTests {
         #expect(ScreenOCR.joinLines([]) == "")
     }
 
+    @Test func koreanLinesKeepTheirSpaces() {
+        #expect(ScreenOCR.joinLines(["안녕하세요", "세계"]) == "안녕하세요 세계")
+    }
+
     @Test func aCJKCharacterOnEitherSideJoinsWithoutASpace() {
         #expect(ScreenOCR.joinLines(["Hello", "世界"]) == "Hello世界")
         #expect(ScreenOCR.joinLines(["世界", "Hello"]) == "世界Hello")

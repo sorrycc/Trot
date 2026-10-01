@@ -56,15 +56,45 @@ enum ServiceKind: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// The model in use: the one in Settings, else the default.
+    @MainActor
+    var activeModel: String {
+        let model = Settings.model(for: self)
+        return model.isEmpty ? defaultModel : model
+    }
+
+    /// The base URL in use: the one in Settings, tidied, else the default.
+    @MainActor
+    var activeBaseURL: String {
+        let base = Settings.baseURL(for: self)
+        return base.isEmpty ? defaultBaseURL : Self.normalizedBaseURL(base, for: self)
+    }
+
+    /// `raw` as a base URL the service's paths append to: a scheme when
+    /// there is none, no trailing slashes, and without the path of the
+    /// endpoint itself, which is pasted along more often than not.
+    static func normalizedBaseURL(_ raw: String, for kind: ServiceKind) -> String {
+        var url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return url }
+        if !url.contains("://") { url = "https://" + url }
+        while url.hasSuffix("/") { url.removeLast() }
+        let endpoints: [String] =
+            switch kind {
+            case .openAI: ["/chat/completions"]
+            case .claude: ["/v1/messages", "/v1"]
+            case .deepL, .google: []
+            }
+        for endpoint in endpoints where url.hasSuffix(endpoint) {
+            url.removeLast(endpoint.count)
+            break
+        }
+        return url
+    }
+
     /// The service with its current settings. Cheap, so callers make one per request.
     @MainActor
     func makeService() -> any TranslationService {
-        let base = Settings.baseURL(for: self)
-        let config = ServiceConfig(
-            baseURL: base.isEmpty ? defaultBaseURL : base,
-            apiKey: Settings.apiKey(for: self),
-            model: Settings.model(for: self).isEmpty ? defaultModel : Settings.model(for: self)
-        )
+        let config = ServiceConfig(baseURL: activeBaseURL, apiKey: Settings.apiKey(for: self), model: activeModel)
         switch self {
         case .openAI: return OpenAIService(config: config)
         case .claude: return ClaudeService(config: config)
@@ -106,14 +136,27 @@ enum TranslationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingKey(let kind): return "\(kind.displayName) needs an API key."
-        case .badURL(let url): return "\"\(url)\" is not a valid URL."
-        case .http(let code, let message): return message.isEmpty ? "HTTP \(code)" : "HTTP \(code): \(message)"
+        case .badURL(let url): return "\"\(url)\" is not a valid URL. Check the base URL in Settings."
+        case .http(let code, let message): return message.isEmpty ? Self.describe(status: code) : "HTTP \(code): \(message)"
         case .invalidResponse: return "The service sent a reply Trot can't read."
         case .refused(let reason): return reason.isEmpty ? "The service declined to translate this." : reason
         case .truncated: return "The translation was cut off: the text is too long for one request. Try a shorter selection."
         case .notAStream(let body):
             let message = HTTP.errorMessage(in: body)
             return message.isEmpty ? "The service replied with something other than a translation. Check the base URL." : message
+        }
+    }
+
+    /// A sentence for a status code that came with no message of its own.
+    static func describe(status code: Int) -> String {
+        switch code {
+        case 401, 403: return "The API key was rejected (HTTP \(code))."
+        case 404: return "Not found (HTTP 404). Check the base URL and the model."
+        case 413: return "The text is too long for this service (HTTP 413)."
+        case 429: return "Too many requests (HTTP 429). Try again in a moment."
+        case 456: return "The DeepL quota for this key is used up (HTTP 456)."
+        case 500...599: return "The service is having trouble (HTTP \(code)). Try again in a moment."
+        default: return "HTTP \(code)"
         }
     }
 }
@@ -129,6 +172,18 @@ enum HTTP {
         config.waitsForConnectivity = false
         return URLSession(configuration: config)
     }()
+
+    /// Opens the connection to `kind`'s host ahead of the request, so the
+    /// DNS, TCP and TLS round trips overlap with reading the selection
+    /// instead of adding to the wait for the first word. The reply is
+    /// ignored; the pooled connection is what matters.
+    @MainActor
+    static func preconnect(to kind: ServiceKind) {
+        guard kind.hasBaseURL, let url = URL(string: kind.activeBaseURL), url.host() != nil else { return }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+        request.httpMethod = "HEAD"
+        session.dataTask(with: request).resume()
+    }
 
     /// Posts `body` as JSON and returns the response bytes, or throws with
     /// the service's error message for a non-2xx status.
@@ -206,10 +261,14 @@ enum HTTP {
             let task = Task {
                 do {
                     var sawEvent = false
+                    // Kept only until the first event shows this is a stream.
                     var other = ""
                     for try await line in bytes.lines {
                         guard line.hasPrefix("data:") else {
-                            if other.count < 64 * 1024 { other += line + "\n" }
+                            if !sawEvent, other.utf8.count < 64 * 1024 {
+                                other += line
+                                other += "\n"
+                            }
                             continue
                         }
                         sawEvent = true

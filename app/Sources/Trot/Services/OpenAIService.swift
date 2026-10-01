@@ -32,7 +32,11 @@ struct OpenAIService: TranslationService {
                     if let delta = first["delta"] as? [String: Any], let content = delta["content"] as? String {
                         continuation.yield(content)
                     }
-                    if first["finish_reason"] as? String == "length" { throw TranslationError.truncated }
+                    switch first["finish_reason"] as? String {
+                    case "length": throw TranslationError.truncated
+                    case "content_filter": throw TranslationError.refused("")
+                    default: break
+                    }
                 }
             } catch TranslationError.notAStream(let body) {
                 // A gateway that ignored `stream` sends the whole completion at once.

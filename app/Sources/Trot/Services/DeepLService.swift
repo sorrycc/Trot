@@ -11,7 +11,9 @@ struct DeepLService: TranslationService {
             guard !config.apiKey.isEmpty else { throw TranslationError.missingKey(.deepL) }
             let host = config.apiKey.hasSuffix(":fx") ? "api-free.deepl.com" : "api.deepl.com"
             var body: [String: Any] = ["text": [text], "target_lang": Self.targetCode(target)]
-            if let source { body["source_lang"] = Self.sourceCode(source) }
+            // The service detects Latin-script languages better than a local
+            // guess on a short string; a CJK script is certain either way.
+            if let source, source.isScriptCertain { body["source_lang"] = Self.sourceCode(source) }
             let data = try await HTTP.postForData(
                 "https://\(host)/v2/translate",
                 headers: ["Authorization": "DeepL-Auth-Key \(config.apiKey)"], body: body
@@ -24,7 +26,7 @@ struct DeepLService: TranslationService {
         }
     }
 
-    private static func targetCode(_ language: Language) -> String {
+    static func targetCode(_ language: Language) -> String {
         switch language {
         case .english: "EN-US"
         case .chineseSimplified: "ZH-HANS"
@@ -34,7 +36,7 @@ struct DeepLService: TranslationService {
         }
     }
 
-    private static func sourceCode(_ language: Language) -> String {
+    static func sourceCode(_ language: Language) -> String {
         switch language {
         case .chineseSimplified, .chineseTraditional: "ZH"
         default: language.rawValue.uppercased()

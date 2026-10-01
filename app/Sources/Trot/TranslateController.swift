@@ -16,15 +16,27 @@ final class TranslateController {
     private var detected: Language?
     private var target: Language?
 
+    /// Longer selections are cut here: no service takes a whole book in one
+    /// request, and laying one out would hold up the panel.
+    static let maxCharacters = 20_000
+    /// A selection read that takes longer than this shows the panel with
+    /// "Reading…", so the hotkey is seen to have done something.
+    private static let readingDelay: Duration = .milliseconds(150)
+
     init() {
-        panel.onTranslate = { [weak self] text in self?.translate(text) }
+        panel.onTranslate = { [weak self] text in
+            guard let self else { return }
+            translate(text, to: panel.pickedTarget)
+        }
         panel.onTargetChange = { [weak self] language in
             guard let self, let source = retranslationSource() else { return }
             translate(source, to: language)
         }
         panel.onServiceChange = { [weak self] kind in
             Settings.service = kind
-            guard let self, let source = retranslationSource(), panel.mode == .result || !panel.resultText.isEmpty else { return }
+            guard let self, let source = retranslationSource(),
+                panel.mode == .result || !panel.resultText.isEmpty || panel.showsError
+            else { return }
             translate(source, to: target)
         }
         panel.onClose = { [weak self] in self?.stop() }
@@ -51,6 +63,7 @@ final class TranslateController {
     /// the input panel opens instead so the key always does something.
     func translateSelection() {
         let point = NSEvent.mouseLocation
+        HTTP.preconnect(to: Settings.service)
         guard Accessibility.isTrusted else {
             Accessibility.prompt()
             stop()
@@ -71,8 +84,17 @@ final class TranslateController {
             return
         }
         let run = stop()
+        panel.cancelStreaming()
         Task {
+            // A slow read, as the pasteboard path in browsers can be, shows
+            // the panel waiting. It takes no keys, so ⌘C still reaches the app.
+            let waiting = Task {
+                try? await Task.sleep(for: Self.readingDelay)
+                guard !Task.isCancelled, generation == run else { return }
+                panel.beginReading(status: "Reading the selection…", at: point, key: false)
+            }
             let selected = await SelectionReader.read()
+            waiting.cancel()
             guard generation == run else { return }
             if let selected {
                 translate(selected, at: point)
@@ -83,6 +105,7 @@ final class TranslateController {
     }
 
     func showInput() {
+        HTTP.preconnect(to: Settings.service)
         // Typing while a typed translation streams is fine; the result
         // belongs to the field. Anything else is a fresh start.
         if !(panel.mode == .input && panel.isVisible) { stop() }
@@ -91,11 +114,20 @@ final class TranslateController {
 
     func translateScreenshot() {
         let run = stop()
+        HTTP.preconnect(to: Settings.service)
         Task {
             do {
-                guard let recognized = try await ScreenOCR.capture() else { return }
+                guard let file = try await ScreenOCR.capture() else {
+                    // Escape in the crosshair: whatever was streaming is over.
+                    if generation == run { panel.cancelStreaming() }
+                    return
+                }
                 guard generation == run else { return }
-                translate(recognized, at: NSEvent.mouseLocation)
+                let point = NSEvent.mouseLocation
+                panel.beginReading(status: "Reading the screenshot…", at: point)
+                let recognized = try await ScreenOCR.recognize(file)
+                guard generation == run else { return }
+                translate(recognized, at: point)
             } catch let failure as ScreenOCR.Failure where failure == .screenRecordingDenied {
                 guard generation == run else { return }
                 panel.showInput(
@@ -112,6 +144,7 @@ final class TranslateController {
     /// Translates `text`, into `target` when given, else by the two-language rule.
     func translate(_ text: String, to target: Language? = nil, at point: NSPoint? = nil) {
         let run = stop()
+        let (text, cut) = Self.capped(text)
         let detected = Language.detect(text, preferredChinese: Settings.preferredChinese)
         let target = target ?? Settings.target(for: detected)
         self.text = text
@@ -133,13 +166,15 @@ final class TranslateController {
                     panel.append(chunk)
                 }
                 guard let self, generation == run, !Task.isCancelled else { return }
-                let elapsed = start.duration(to: .now)
-                let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-                panel.finish(status: "\(kind.shortName) · \(String(format: "%.1f", seconds)) s")
+                if panel.resultText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    panel.showError("\(kind.displayName) sent back an empty translation.", action: ("Retry", { [weak self] in self?.retry() }))
+                    return
+                }
+                panel.finish(status: Self.status(for: kind, elapsed: start.duration(to: .now), cut: cut))
             } catch {
                 guard let self, generation == run, !Task.isCancelled, panel.isVisible else { return }
                 let action: (String, () -> Void) =
-                    if Self.needsSettings(error) {
+                    if Self.needsSettings(error, for: kind) {
                         ("Open Settings…", { (NSApp.delegate as? AppDelegate)?.showSettings(nil) })
                     } else {
                         ("Retry", { [weak self] in self?.retry() })
@@ -156,13 +191,31 @@ final class TranslateController {
         translate(source, to: target)
     }
 
+    /// `text` cut to `maxCharacters`, and whether it was.
+    static func capped(_ text: String) -> (String, Bool) {
+        guard text.count > maxCharacters else { return (text, false) }
+        return (String(text.prefix(maxCharacters)), true)
+    }
+
+    /// The footer after a translation: the model when the service has one,
+    /// the time it took, and a note when the text was cut.
+    static func status(for kind: ServiceKind, elapsed: Duration, cut: Bool) -> String {
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        var parts: [String] = []
+        if kind.hasModel { parts.append(kind.activeModel) }
+        parts.append(String(format: "%.1f s", seconds))
+        if cut { parts.append("first \(maxCharacters.formatted()) characters") }
+        return parts.joined(separator: " · ")
+    }
+
     /// Whether the error is one Settings can fix: a missing or rejected
-    /// key, a wrong base URL.
-    private static func needsSettings(_ error: Error) -> Bool {
+    /// key, a wrong base URL. Google has nothing to set.
+    static func needsSettings(_ error: Error, for kind: ServiceKind) -> Bool {
+        guard kind != .google else { return false }
         switch error as? TranslationError {
-        case .missingKey, .badURL, .notAStream: true
-        case .http(let code, _): code == 401 || code == 403 || code == 404
-        default: false
+        case .missingKey, .badURL, .notAStream: return true
+        case .http(let code, _): return code == 401 || code == 403 || code == 404
+        default: return false
         }
     }
 }

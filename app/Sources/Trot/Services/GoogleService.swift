@@ -10,7 +10,7 @@ struct GoogleService: TranslationService {
             // The text goes in a form body, where "+" and "&" are escaped and
             // long selections don't run into URL length limits.
             let url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t"
-                + "&sl=\(source.map(Self.code) ?? "auto")&tl=\(Self.code(target))"
+                + "&sl=\(source.flatMap { $0.isScriptCertain ? Self.code($0) : nil } ?? "auto")&tl=\(Self.code(target))"
             let data = try await HTTP.postForData(
                 url, headers: ["User-Agent": "Mozilla/5.0"], body: HTTP.formBody([("q", text)]),
                 contentType: "application/x-www-form-urlencoded; charset=utf-8"
@@ -24,7 +24,7 @@ struct GoogleService: TranslationService {
         }
     }
 
-    private static func code(_ language: Language) -> String {
+    static func code(_ language: Language) -> String {
         switch language {
         case .chineseSimplified: "zh-CN"
         case .chineseTraditional: "zh-TW"

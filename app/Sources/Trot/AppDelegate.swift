@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenu.build()
         statusItem = StatusItem(target: self)
         registerHotKeys()
+        // The first detection loads the language model; better now than
+        // in front of the first panel.
+        Task.detached(priority: .utility) { _ = Language.detect("warm up") }
         NotificationCenter.default.addObserver(
             forName: .shortcutsDidChange, object: nil, queue: .main
         ) { [weak self] _ in
