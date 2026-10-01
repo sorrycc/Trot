@@ -19,6 +19,14 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: "secondLanguage") }
     }
 
+    /// The Chinese the user reads, for text that could be either script.
+    static var preferredChinese: Language {
+        for language in [firstLanguage, secondLanguage] where language.sameFamily(as: .chineseSimplified) {
+            return language
+        }
+        return .chineseSimplified
+    }
+
     /// The target for `text` under the two-language rule.
     static func target(for detected: Language?) -> Language {
         guard let detected, detected.sameFamily(as: firstLanguage) else { return firstLanguage }
@@ -123,6 +131,14 @@ enum HotKeyAction: String, CaseIterable, Sendable {
         case .translateScreenshot: Shortcut(key: "s", keyCode: 1, modifiers: [.option])
         }
     }
+}
+
+/// Facts about the app itself, for About and the links in Settings.
+enum AppInfo {
+    static let homepage = "https://github.com/sorrycc/trot"
+    static let issues = "https://github.com/sorrycc/trot/issues"
+    static let license = "https://github.com/sorrycc/trot/blob/main/LICENSE"
+    static let copyright = "© 2026 chencheng · MIT License"
 }
 
 extension Notification.Name {

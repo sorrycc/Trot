@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Test
+        run: scripts/test.sh
+      - name: Bundle
+        run: scripts/bundle.sh release
+      - name: Verify signature
+        run: codesign --verify --strict --verbose=2 build/Trot.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Trot.app
+          path: build/Trot.app

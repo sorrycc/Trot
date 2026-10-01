@@ -27,6 +27,16 @@ enum ServiceKind: String, CaseIterable, Codable, Sendable {
     }
 
     var needsKey: Bool { self != .google }
+
+    /// Where the service hands out keys, for a link under the key field.
+    var keyPage: String? {
+        switch self {
+        case .openAI: "https://platform.openai.com/api-keys"
+        case .claude: "https://console.anthropic.com/settings/keys"
+        case .deepL: "https://www.deepl.com/your-account/keys"
+        case .google: nil
+        }
+    }
     var hasBaseURL: Bool { self == .openAI || self == .claude }
     var hasModel: Bool { self == .openAI || self == .claude }
 
@@ -127,15 +137,19 @@ enum HTTP {
     }
 
     static func post(_ url: String, headers: [String: String], body: Data, contentType: String) async throws -> URLSession.AsyncBytes {
-        guard let target = URL(string: url) else { throw TranslationError.badURL(url) }
+        let (bytes, response) = try await session.bytes(for: request(url, headers: headers, body: body, contentType: contentType))
+        try await check(response, bytes)
+        return bytes
+    }
+
+    private static func request(_ url: String, headers: [String: String], body: Data, contentType: String) throws -> URLRequest {
+        guard let target = URL(string: url), target.scheme != nil, target.host() != nil else { throw TranslationError.badURL(url) }
         var request = URLRequest(url: target)
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.httpBody = body
-        let (bytes, response) = try await session.bytes(for: request)
-        try await check(response, bytes)
-        return bytes
+        return request
     }
 
     /// `fields` as a form body, with every reserved character escaped, so a
@@ -148,18 +162,15 @@ enum HTTP {
         return Data(encoded.joined(separator: "&").utf8)
     }
 
-    /// Everything in `bytes`, up to `limit`.
-    static func collect(_ bytes: URLSession.AsyncBytes, limit: Int = 1 << 20) async throws -> Data {
-        var data = Data()
-        for try await byte in bytes.prefix(limit) { data.append(byte) }
-        return data
+    /// Posts `body` and returns the whole reply at once, for services that
+    /// answer with one JSON document. Reading the reply as a block is far
+    /// cheaper than iterating it byte by byte.
+    static func postForData(_ url: String, headers: [String: String], body: [String: Any]) async throws -> Data {
+        try await postForData(url, headers: headers, body: try JSONSerialization.data(withJSONObject: body), contentType: "application/json")
     }
 
-    static func get(_ url: String) async throws -> Data {
-        guard let target = URL(string: url) else { throw TranslationError.badURL(url) }
-        var request = URLRequest(url: target)
-        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
+    static func postForData(_ url: String, headers: [String: String], body: Data, contentType: String) async throws -> Data {
+        let (data, response) = try await session.data(for: request(url, headers: headers, body: body, contentType: contentType))
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw TranslationError.http(http.statusCode, errorMessage(in: data))
         }
@@ -174,7 +185,8 @@ enum HTTP {
     }
 
     /// The message in a JSON error body, in the shapes OpenAI, Anthropic and
-    /// DeepL use, else the body itself when short.
+    /// DeepL use, else the body itself when it's short plain text. Markup,
+    /// as a wrong base URL answers with, is never a message.
     static func errorMessage(in data: Data) -> String {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if let error = json["error"] as? [String: Any], let message = error["message"] as? String { return message }
@@ -182,7 +194,8 @@ enum HTTP {
             if let error = json["error"] as? String { return error }
         }
         let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.count <= 200 ? text : ""
+        guard text.count <= 200, !text.hasPrefix("<"), !text.hasPrefix("{") else { return "" }
+        return text
     }
 
     /// The `data:` payloads of a server-sent event stream. Stops at `[DONE]`.

@@ -3,21 +3,22 @@ import AppKit
 /// The menu bar icon and its menu. Shortcuts shown next to the items are the
 /// global hotkeys; the items themselves work from the menu.
 @MainActor
-final class StatusItem {
+final class StatusItem: NSObject {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private weak var target: AppDelegate?
 
     init(target: AppDelegate) {
         self.target = target
+        super.init()
         let symbol = NSImage(systemSymbolName: "translate", accessibilityDescription: "Trot")
             ?? NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "Trot")
         item.button?.image = symbol?.withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
         item.button?.toolTip = "Trot"
         rebuild()
-        NotificationCenter.default.addObserver(
-            forName: .shortcutsDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rebuild() }
+        for name in [Notification.Name.shortcutsDidChange, .serviceDidChange] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.rebuild() }
+            }
         }
     }
 
@@ -37,10 +38,26 @@ final class StatusItem {
             }
         }
         menu.addItem(.separator())
+        // The active service, switchable without opening Settings.
+        let services = NSMenu(title: "Service")
+        for kind in ServiceKind.allCases {
+            let serviceItem = services.addItem(withTitle: kind.displayName, action: #selector(pickService(_:)), keyEquivalent: "")
+            serviceItem.target = self
+            serviceItem.representedObject = kind.rawValue
+            serviceItem.state = kind == Settings.service ? .on : .off
+        }
+        let serviceItem = menu.addItem(withTitle: "Service: \(Settings.service.shortName)", action: nil, keyEquivalent: "")
+        serviceItem.submenu = services
+        menu.addItem(.separator())
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         settings.target = target
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Trot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
+    }
+
+    @objc private func pickService(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let kind = ServiceKind(rawValue: raw), kind != Settings.service else { return }
+        Settings.service = kind
     }
 }

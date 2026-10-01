@@ -76,7 +76,7 @@ enum ScreenOCR {
     /// Lines of one paragraph become one line: CJK text joins directly,
     /// everything else with a space. A line ending in sentence punctuation
     /// keeps its break.
-    private static func joinLines(_ lines: [String]) -> String {
+    static func joinLines(_ lines: [String]) -> String {
         var result = ""
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)

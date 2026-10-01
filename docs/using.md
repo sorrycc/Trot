@@ -13,9 +13,15 @@ The panel is one floating card. From top to bottom:
 - The **source text** and the **translation**, which streams in as the service produces it. Both are selectable. ⌘C with nothing selected copies the whole translation.
 - The **footer**, with the service and how long the translation took, or the error when one fails. The speaker button reads the translation aloud with the system voice for its language; the copy button copies it.
 
-While a translation streams in, a cursor marks where the next words will land.
+While a translation streams in, a blinking cursor marks where the next words will land.
 
-The panel opens below the mouse, or above it near the bottom of the screen, and stays within the screen. Drag it anywhere by its background. Closing the panel stops the translation.
+When a translation fails, the footer says why. A missing or rejected key or a wrong base URL comes with an Open Settings button; anything else, such as a network error, with Retry, which runs the same text again with whatever service is active.
+
+The panel opens below the mouse, or above it near the bottom of the screen, and stays within the screen. It fades and scales in, unless Reduce Motion is on in System Settings. Drag it anywhere by its background. Closing the panel stops the translation.
+
+## The menu bar
+
+The menu bar icon offers the three actions with their hotkeys, a Service submenu that switches the active service, Settings and Quit.
 
 ## Translating the selection (⌥D)
 
@@ -37,6 +43,6 @@ The system crosshair appears. Drag over a region; Escape cancels. Trot reads the
 
 ## Languages
 
-Settings > General has two languages. Text in any other language is translated into the first; text already in the first is translated into the second. The defaults are Simplified Chinese and English. Detection runs on the device and uses the script for short text, so a few Chinese characters are never mistaken for Japanese.
+Settings > General has two languages. Text in any other language is translated into the first; text already in the first is translated into the second. The defaults are Simplified Chinese and English. Detection runs on the device and uses the script for short text, so a few Chinese characters are never mistaken for Japanese. Chinese that could be either script, such as 你好, counts as whichever Chinese is among your two languages.
 
 The chip in the panel overrides the target for the current text.

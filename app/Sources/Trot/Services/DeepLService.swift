@@ -12,11 +12,10 @@ struct DeepLService: TranslationService {
             let host = config.apiKey.hasSuffix(":fx") ? "api-free.deepl.com" : "api.deepl.com"
             var body: [String: Any] = ["text": [text], "target_lang": Self.targetCode(target)]
             if let source { body["source_lang"] = Self.sourceCode(source) }
-            let bytes = try await HTTP.post(
+            let data = try await HTTP.postForData(
                 "https://\(host)/v2/translate",
                 headers: ["Authorization": "DeepL-Auth-Key \(config.apiKey)"], body: body
             )
-            let data = try await HTTP.collect(bytes)
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let translations = json["translations"] as? [[String: Any]],
                 let translated = translations.first?["text"] as? String

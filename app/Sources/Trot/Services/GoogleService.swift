@@ -11,11 +11,10 @@ struct GoogleService: TranslationService {
             // long selections don't run into URL length limits.
             let url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t"
                 + "&sl=\(source.map(Self.code) ?? "auto")&tl=\(Self.code(target))"
-            let bytes = try await HTTP.post(
+            let data = try await HTTP.postForData(
                 url, headers: ["User-Agent": "Mozilla/5.0"], body: HTTP.formBody([("q", text)]),
                 contentType: "application/x-www-form-urlencoded; charset=utf-8"
             )
-            let data = try await HTTP.collect(bytes)
             // [[["translated", "source", null, null, 10], ...], null, "en", ...]
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [Any],
                 let sentences = json.first as? [[Any]]

@@ -121,12 +121,18 @@ enum Language: String, CaseIterable, Codable, Sendable {
         return self == other || (chinese.contains(self) && chinese.contains(other))
     }
 
+    /// How much of a text detection reads.
+    static let detectionLimit = 600
+
     /// The language `text` is written in. Short strings lean on the script
-    /// since the recognizer has little to go on.
-    static func detect(_ text: String) -> Language? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// since the recognizer has little to go on. Chinese without a character
+    /// that belongs to one script only, such as 你好, is `preferredChinese`.
+    static func detect(_ text: String, preferredChinese: Language = .chineseSimplified) -> Language? {
+        // The first few hundred characters say what language a text is in;
+        // reading a whole article would only make a long selection slower.
+        let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(detectionLimit))
         guard !trimmed.isEmpty else { return nil }
-        if let scripted = detectByScript(trimmed) { return scripted }
+        if let scripted = detectByScript(trimmed, preferredChinese: preferredChinese) { return scripted }
         let recognizer = NLLanguageRecognizer()
         recognizer.languageConstraints = Language.allCases.map(\.nlLanguage)
         recognizer.processString(trimmed)
@@ -136,7 +142,7 @@ enum Language: String, CaseIterable, Codable, Sendable {
 
     /// Kana means Japanese, Hangul means Korean, and Han without either means
     /// Chinese, which the recognizer gets wrong on short strings.
-    private static func detectByScript(_ text: String) -> Language? {
+    private static func detectByScript(_ text: String, preferredChinese: Language) -> Language? {
         var han = 0, kana = 0, hangul = 0, letters = 0
         for scalar in text.unicodeScalars {
             switch scalar.value {
@@ -150,9 +156,14 @@ enum Language: String, CaseIterable, Codable, Sendable {
         guard cjk > 0, cjk * 2 >= letters else { return nil }
         if kana > 0 { return .japanese }
         if hangul > 0 { return .korean }
+        // The recognizer is sure (1.0) when a character exists in one script
+        // only and guesses otherwise; a guess goes to the user's own Chinese.
         let recognizer = NLLanguageRecognizer()
         recognizer.languageConstraints = [.simplifiedChinese, .traditionalChinese]
         recognizer.processString(text)
-        return recognizer.dominantLanguage == .traditionalChinese ? .chineseTraditional : .chineseSimplified
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 2)
+        if hypotheses[.traditionalChinese] ?? 0 >= 0.9 { return .chineseTraditional }
+        if hypotheses[.simplifiedChinese] ?? 0 >= 0.9 { return .chineseSimplified }
+        return preferredChinese.sameFamily(as: .chineseSimplified) ? preferredChinese : .chineseSimplified
     }
 }

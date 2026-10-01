@@ -1,5 +1,6 @@
 // Renders app/Resources/Trot-1024.png and Trot.icns: a rounded square with a
-// gradient and the letter T over a double arrow. Run: swift scripts/make-icon.swift
+// warm gradient, the letter T and a double arrow, since translation goes both
+// ways. Run: swift scripts/make-icon.swift
 import AppKit
 
 let size: CGFloat = 1024
@@ -7,40 +8,67 @@ let image = NSImage(size: NSSize(width: size, height: size))
 image.lockFocus()
 let context = NSGraphicsContext.current!.cgContext
 
-// macOS icons leave a margin inside the canvas.
-let inset: CGFloat = size * 0.1
+// macOS icons sit on an 824 pt square inside the 1024 pt canvas, with
+// corners of about 22% of the side.
+let inset: CGFloat = size * 0.0977
 let rect = CGRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
-let path = NSBezierPath(roundedRect: rect, xRadius: rect.width * 0.225, yRadius: rect.width * 0.225)
-path.addClip()
-let gradient = NSGradient(colors: [
-    NSColor(calibratedRed: 0.98, green: 0.49, blue: 0.22, alpha: 1),
-    NSColor(calibratedRed: 0.86, green: 0.22, blue: 0.36, alpha: 1),
-])!
-gradient.draw(in: rect, angle: -60)
+let radius = rect.width * 0.2237
+let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
 
-// A soft highlight across the top.
-let highlight = NSGradient(colors: [NSColor.white.withAlphaComponent(0), NSColor.white.withAlphaComponent(0.2)])!
-highlight.draw(in: rect, angle: 90)
+// A soft drop shadow under the tile, as the system draws for its own icons.
+context.saveGState()
+context.setShadow(offset: CGSize(width: 0, height: -size * 0.012), blur: size * 0.03, color: NSColor.black.withAlphaComponent(0.28).cgColor)
+NSColor(calibratedRed: 0.92, green: 0.35, blue: 0.3, alpha: 1).setFill()
+shape.fill()
+context.restoreGState()
 
-// The letter.
-let font = NSFont.systemFont(ofSize: size * 0.52, weight: .heavy)
+context.saveGState()
+shape.addClip()
+// Warm orange at the top left to deep rose at the bottom right.
+NSGradient(colorsAndLocations:
+    (NSColor(calibratedRed: 1.0, green: 0.62, blue: 0.3, alpha: 1), 0),
+    (NSColor(calibratedRed: 0.97, green: 0.42, blue: 0.3, alpha: 1), 0.5),
+    (NSColor(calibratedRed: 0.84, green: 0.2, blue: 0.4, alpha: 1), 1)
+)!.draw(in: rect, angle: -58)
+// Light from above: a sheen across the top, a shade along the bottom.
+NSGradient(colorsAndLocations:
+    (NSColor.white.withAlphaComponent(0), 0), (NSColor.white.withAlphaComponent(0.06), 0.55), (NSColor.white.withAlphaComponent(0.22), 1)
+)!.draw(in: rect, angle: 90)
+NSGradient(colorsAndLocations:
+    (NSColor.black.withAlphaComponent(0.14), 0), (NSColor.black.withAlphaComponent(0), 0.3)
+)!.draw(in: rect, angle: 90)
+// A hairline at the top edge, as glass has.
+let edge = NSBezierPath(roundedRect: rect.insetBy(dx: size * 0.004, dy: size * 0.004), xRadius: radius, yRadius: radius)
+edge.lineWidth = size * 0.006
+NSColor.white.withAlphaComponent(0.25).setStroke()
+edge.stroke()
+context.restoreGState()
+
+// The glyphs cast a faint shadow so they sit on the tile rather than in it.
+context.saveGState()
+context.setShadow(offset: CGSize(width: 0, height: -size * 0.008), blur: size * 0.02, color: NSColor.black.withAlphaComponent(0.22).cgColor)
+
+// The letter, a little above centre to leave room for the arrow.
+let font = NSFont.systemFont(ofSize: size * 0.5, weight: .heavy)
 let letter = NSAttributedString(string: "T", attributes: [.font: font, .foregroundColor: NSColor.white])
 let letterSize = letter.size()
-letter.draw(at: CGPoint(x: rect.midX - letterSize.width / 2, y: rect.midY - letterSize.height / 2 + size * 0.06))
+let letterOrigin = CGPoint(x: rect.midX - letterSize.width / 2, y: rect.midY - letterSize.height / 2 + size * 0.075)
+letter.draw(at: letterOrigin)
 
 // A double arrow under it: translation goes both ways.
-context.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
-context.setLineWidth(size * 0.028)
+context.setStrokeColor(NSColor.white.withAlphaComponent(0.92).cgColor)
+context.setLineWidth(size * 0.034)
 context.setLineCap(.round)
 context.setLineJoin(.round)
-let y = rect.minY + rect.height * 0.21
-let left = rect.minX + rect.width * 0.3
-let right = rect.maxX - rect.width * 0.3
-let head = size * 0.045
+let y = rect.minY + rect.height * 0.215
+let left = rect.minX + rect.width * 0.29
+let right = rect.maxX - rect.width * 0.29
+let head = size * 0.05
 context.move(to: CGPoint(x: left, y: y)); context.addLine(to: CGPoint(x: right, y: y))
 context.move(to: CGPoint(x: left + head, y: y + head)); context.addLine(to: CGPoint(x: left, y: y)); context.addLine(to: CGPoint(x: left + head, y: y - head))
 context.move(to: CGPoint(x: right - head, y: y + head)); context.addLine(to: CGPoint(x: right, y: y)); context.addLine(to: CGPoint(x: right - head, y: y - head))
 context.strokePath()
+context.restoreGState()
 image.unlockFocus()
 
 let root = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().deletingLastPathComponent()

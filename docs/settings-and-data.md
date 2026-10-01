@@ -18,6 +18,13 @@ Settings opens from the menu bar icon or with ⌘, while a Trot window is key. C
 | Shortcuts | Translate Selection | ⌥D | Click, then press a combination with ⌘, ⌥ or ⌃. Delete clears it |
 | Shortcuts | Translate Input | ⌥A | |
 | Shortcuts | Translate Screenshot | ⌥S | |
+| About | | | The version, a short description and links to the project |
+
+Under the API key field a link opens the page where the service hands out keys. Every pane is the same width, so switching between them moves nothing.
+
+<p align="center">
+  <img src="images/settings-services.png" width="540" alt="The Services pane with OpenAI Compatible selected">
+</p>
 
 Shortcuts are registered system-wide through Carbon hotkeys, which work without the Accessibility permission. When another app already holds a combination, the pane says so.
 
@@ -45,4 +52,13 @@ open build/Trot.app --args -translate "Hello"        # open the panel with that 
 open build/Trot.app --args -input YES                # open the input panel
 open build/Trot.app --args -settings Services        # open a Settings pane
 open build/Trot.app --args -preview YES -translate … # show the panel without taking the keyboard
+open build/Trot.app --args -appearance dark          # force dark (or light) for a screenshot
 ```
+
+## Trying the panel without a key
+
+`scripts/mock-service.py` serves a fake OpenAI-compatible API on `http://127.0.0.1:48765`. Pick OpenAI Compatible in Settings, set the base URL to `http://127.0.0.1:48765/v1` and any key. The path picks the behaviour: `/v1` streams a translation one character at a time, `/slow` does so slowly, `/fail` answers with an error, and `/plain` ignores `stream` and answers with one message, as some gateways do.
+
+## Tests
+
+`scripts/test.sh` runs the unit tests with Swift Testing. They cover language detection, the two-language rule, shortcut parsing and display, the joining of screenshot lines into paragraphs, and the HTTP helpers. The script adds the framework paths the Command Line Tools need; with Xcode installed, `swift test --package-path app` works too.

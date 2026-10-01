@@ -47,6 +47,13 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     private var action: (() -> Void)?
     private var clickMonitor: Any?
     private var copiedResetTask: Task<Void, Never>?
+    /// Counts presentations, so a fade-out that ends after the panel was
+    /// shown again leaves it on screen.
+    private var presentation = 0
+    private var blinkTimer: Timer?
+    private var cursorVisible = true
+    /// How much smaller the card starts as it fades in.
+    private static let entranceScale: CGFloat = 0.96
     private let speaker = Speaker()
 
     private(set) var mode: Mode = .result
@@ -208,6 +215,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         glass.contentView = column
         glass.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
+        root.wantsLayer = true
         root.addSubview(glass)
         NSLayoutConstraint.activate([
             glass.topAnchor.constraint(equalTo: root.topAnchor),
@@ -225,8 +233,12 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
             .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
         button.toolTip = tip
-        button.isBordered = false
+        // A bordered accessory button draws its rounded fill only under the
+        // mouse, which is the hover state the icons need.
+        button.isBordered = true
         button.bezelStyle = .accessoryBarAction
+        button.showsBorderOnlyWhileMouseInside = true
+        button.imagePosition = .imageOnly
         button.contentTintColor = .secondaryLabelColor
         button.target = self
         button.action = action
@@ -365,10 +377,37 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         showStatus("Translating with \(service.shortName)…", color: .secondaryLabelColor)
         statusLabel.toolTip = nil
         renderResult()
+        startBlinking()
+    }
+
+    /// The cursor blinks like an insertion point, which says the stream is
+    /// alive. Only its colour changes, so no layout runs for the blink.
+    private func startBlinking() {
+        stopBlinking()
+        cursorVisible = true
+        blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.blink() }
+        }
+    }
+
+    private func stopBlinking() {
+        blinkTimer?.invalidate()
+        blinkTimer = nil
+        cursorVisible = true
+    }
+
+    private func blink() {
+        guard isStreaming, let storage = resultView.textStorage else { return }
+        let length = (Self.cursor as NSString).length
+        guard storage.length >= length else { return }
+        cursorVisible.toggle()
+        let color: NSColor = cursorVisible ? .controlAccentColor : .clear
+        storage.addAttribute(.foregroundColor, value: color, range: NSRange(location: storage.length - length, length: length))
     }
 
     private func clearResult() {
         speaker.stop()
+        stopBlinking()
         resultText = ""
         pendingChunks = ""
         isStreaming = false
@@ -377,6 +416,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
 
     private func endStreaming() {
         isStreaming = false
+        stopBlinking()
         setBusy(false)
         renderResult()
     }
@@ -405,6 +445,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         let text = NSMutableAttributedString(string: resultText, attributes: Self.resultAttributes)
         if isStreaming { text.append(NSAttributedString(string: Self.cursor, attributes: Self.cursorAttributes)) }
         resultView.textStorage?.setAttributedString(text)
+        cursorVisible = true
     }
 
     private func showStatus(_ text: String, color: NSColor) {
@@ -418,25 +459,63 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         updateLayout()
         if isVisible {
             resizeKeepingTop()
+            // Shown again during the fade-out: keep it, at full strength.
+            if alphaValue < 1 {
+                presentation &+= 1
+                animator().alphaValue = 1
+                installClickMonitor()
+            }
             return
         }
         place(near: point)
+        presentation &+= 1
         alphaValue = 0
         if Self.previewOnly { orderFrontRegardless() } else { makeKeyAndOrderFront(nil) }
+        animateEntrance()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.14
+            context.duration = 0.16
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animator().alphaValue = 1
         }
         installClickMonitor()
     }
 
+    /// The card grows from slightly smaller as it fades in. The scale is a
+    /// layer animation, so a resize while it runs, as an instant error
+    /// causes, is not undone when it ends.
+    private func animateEntrance() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            let content = contentView, let layer = content.layer
+        else { return }
+        let bounds = content.bounds
+        var from = CATransform3DMakeTranslation(bounds.midX, bounds.midY, 0)
+        from = CATransform3DScale(from, Self.entranceScale, Self.entranceScale, 1)
+        from = CATransform3DTranslate(from, -bounds.midX, -bounds.midY, 0)
+        let scale = CABasicAnimation(keyPath: "transform")
+        scale.fromValue = NSValue(caTransform3D: from)
+        scale.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        scale.duration = 0.2
+        scale.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+        layer.add(scale, forKey: "entrance")
+    }
+
     @objc private func closePanel(_ sender: Any?) {
         speaker.stop()
-        orderOut(nil)
+        stopBlinking()
         removeClickMonitor()
         isPinned = false
         onClose?()
+        let run = presentation
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.1
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.presentation == run else { return }
+                self.orderOut(nil)
+            }
+        })
     }
 
     override func keyDown(with event: NSEvent) {

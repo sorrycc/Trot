@@ -112,7 +112,7 @@ final class TranslateController {
     /// Translates `text`, into `target` when given, else by the two-language rule.
     func translate(_ text: String, to target: Language? = nil, at point: NSPoint? = nil) {
         let run = stop()
-        let detected = Language.detect(text)
+        let detected = Language.detect(text, preferredChinese: Settings.preferredChinese)
         let target = target ?? Settings.target(for: detected)
         self.text = text
         self.detected = detected
@@ -138,13 +138,22 @@ final class TranslateController {
                 panel.finish(status: "\(kind.shortName) · \(String(format: "%.1f", seconds)) s")
             } catch {
                 guard let self, generation == run, !Task.isCancelled, panel.isVisible else { return }
-                var action: (String, () -> Void)?
-                if Self.needsSettings(error) {
-                    action = ("Open Settings…", { (NSApp.delegate as? AppDelegate)?.showSettings(nil) })
-                }
+                let action: (String, () -> Void) =
+                    if Self.needsSettings(error) {
+                        ("Open Settings…", { (NSApp.delegate as? AppDelegate)?.showSettings(nil) })
+                    } else {
+                        ("Retry", { [weak self] in self?.retry() })
+                    }
                 panel.showError(error.localizedDescription, action: action)
             }
         }
+    }
+
+    /// Runs the last translation again, with the same target and whatever
+    /// service is active now.
+    private func retry() {
+        guard let source = retranslationSource() else { return }
+        translate(source, to: target)
     }
 
     /// Whether the error is one Settings can fix: a missing or rejected

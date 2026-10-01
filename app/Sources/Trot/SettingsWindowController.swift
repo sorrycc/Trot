@@ -12,6 +12,7 @@ final class SettingsWindowController: NSWindowController {
             (GeneralSettingsPane(), "gearshape"),
             (ServicesSettingsPane(), "globe"),
             (ShortcutsSettingsPane(), "keyboard"),
+            (AboutSettingsPane(), "info.circle"),
         ]
         for (pane, symbol) in panes {
             let item = NSTabViewItem(viewController: pane)
@@ -37,11 +38,14 @@ final class SettingsWindowController: NSWindowController {
 }
 
 /// A two-column form: right-aligned labels, controls on the right, and short
-/// notes under some controls.
+/// notes under some controls. Every pane is the same width with the label
+/// column at the same place, so switching panes moves nothing sideways.
 @MainActor
 class SettingsPane: NSViewController {
     let grid = NSGridView()
     static let controlWidth: CGFloat = 340
+    static let paneWidth: CGFloat = 540
+    static let labelWidth: CGFloat = 140
 
     init(title: String) {
         super.init(nibName: nil, bundle: nil)
@@ -58,16 +62,20 @@ class SettingsPane: NSViewController {
         grid.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(grid)
         NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalToConstant: Self.paneWidth),
             grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
             grid.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
             grid.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            grid.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -20),
         ])
         self.view = view
         buildRows()
-        grid.column(at: 0).xPlacement = .trailing
+        if grid.numberOfColumns > 0 {
+            grid.column(at: 0).xPlacement = .trailing
+            grid.column(at: 0).width = Self.labelWidth
+        }
         view.layoutSubtreeIfNeeded()
-        preferredContentSize = view.fittingSize
+        preferredContentSize = NSSize(width: Self.paneWidth, height: view.fittingSize.height)
     }
 
     /// Subclasses add their rows here.
@@ -80,7 +88,7 @@ class SettingsPane: NSViewController {
 
     /// A note under the control in the row above.
     @discardableResult
-    func addNote(_ note: NSTextField) -> NSGridRow {
+    func addNote(_ note: NSView) -> NSGridRow {
         let row = grid.addRow(with: [NSGridCell.emptyContentView, note])
         row.topPadding = -4
         row.bottomPadding = 6
@@ -101,6 +109,11 @@ class SettingsPane: NSViewController {
     static func show(_ text: String, in note: NSTextField, warning: Bool = false) {
         note.stringValue = text
         note.textColor = warning ? .systemRed : .secondaryLabelColor
+    }
+
+    /// A small text link that opens `url`.
+    static func link(_ title: String, to url: String) -> LinkButton {
+        LinkButton(title: title, url: url)
     }
 
     static func fixWidth(_ view: NSView, _ width: CGFloat = controlWidth) -> NSView {
@@ -212,6 +225,8 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
     private let keyField = NSSecureTextField()
     private let modelField = NSTextField()
     private let serviceNote = SettingsPane.note()
+    private let keyLink = SettingsPane.link("", to: "")
+    private var keyLinkRow: NSGridRow?
     private let testButton = NSButton(title: "Test", target: nil, action: nil)
     private let testNote = SettingsPane.note()
     private var baseURLRow: NSGridRow?
@@ -240,6 +255,7 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         }
         baseURLRow = addRow("Base URL:", Self.fixWidth(baseURLField))
         keyRow = addRow("API key:", Self.fixWidth(keyField))
+        keyLinkRow = addNote(keyLink)
         modelRow = addRow("Model:", Self.fixWidth(modelField))
 
         testButton.target = self
@@ -268,6 +284,10 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         servicePopUp?.selectItem(at: ServiceKind.allCases.firstIndex(of: kind) ?? 0)
         baseURLRow?.isHidden = !kind.hasBaseURL
         keyRow?.isHidden = !kind.needsKey
+        if let page = kind.keyPage {
+            keyLink.set(title: "Get an API key from \(kind.shortName)…", url: page)
+        }
+        keyLinkRow?.isHidden = kind.keyPage == nil
         modelRow?.isHidden = !kind.hasModel
         baseURLField.stringValue = Settings.baseURL(for: kind)
         baseURLField.placeholderString = kind.defaultBaseURL
@@ -277,7 +297,7 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         testNote.stringValue = ""
         let note: String =
             switch kind {
-            case .openAI: "Any chat completions API: OpenAI, DeepSeek, Qwen, Ollama. Streams the translation."
+            case .openAI: "Any chat completions API: OpenAI, DeepSeek, Qwen, Ollama. Streams the translation. Keys are stored on this Mac only."
             case .claude: "Anthropic's Messages API, streamed. The base URL can point at a proxy."
             case .deepL: "A key ending in :fx uses the free API, any other the Pro API."
             case .google: "Uses the endpoint Google's web client uses. No key, but unofficial, so it may stop working."
@@ -389,5 +409,113 @@ final class ShortcutsSettingsPane: SettingsPane {
         let taken = Settings.shortcut(for: action) != nil && !HotKeyCenter.shared.isRegistered(id: id)
         Self.show(taken ? "Another app holds this shortcut, so it won't work." : "", in: note, warning: true)
         noteRows[action]?.isHidden = !taken
+    }
+}
+
+// MARK: About
+
+/// The app icon, the version and where the project lives.
+final class AboutSettingsPane: SettingsPane {
+    init() { super.init(title: "About") }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() {
+        let view = NSView()
+        let icon = NSImageView(image: NSApp.applicationIconImage)
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.setContentHuggingPriority(.required, for: .vertical)
+
+        let name = NSTextField(labelWithString: "Trot")
+        name.font = .systemFont(ofSize: 22, weight: .bold)
+        let version = NSTextField(labelWithString: "Version \(Self.version)")
+        version.font = .systemFont(ofSize: 12)
+        version.textColor = .secondaryLabelColor
+
+        let blurb = NSTextField(wrappingLabelWithString:
+            "A small translation app for the menu bar: three hotkeys and one floating panel. "
+            + "Native AppKit, so the panel is on screen before you've let go of the keys. "
+            + "Trot keeps no history and sends text only to the service you chose.")
+        blurb.font = .systemFont(ofSize: 12)
+        blurb.textColor = .secondaryLabelColor
+        blurb.alignment = .center
+        blurb.preferredMaxLayoutWidth = 380
+
+        let links = NSStackView(views: [
+            Self.link("Website", to: AppInfo.homepage),
+            Self.link("Report a Problem", to: AppInfo.issues),
+            Self.link("MIT License", to: AppInfo.license),
+        ])
+        links.spacing = 18
+
+        let copyright = NSTextField(labelWithString: AppInfo.copyright)
+        copyright.font = .systemFont(ofSize: 11)
+        copyright.textColor = .tertiaryLabelColor
+
+        let column = NSStackView(views: [icon, name, version, blurb, links, copyright])
+        column.orientation = .vertical
+        column.alignment = .centerX
+        column.spacing = 6
+        column.setCustomSpacing(10, after: icon)
+        column.setCustomSpacing(14, after: version)
+        column.setCustomSpacing(16, after: blurb)
+        column.setCustomSpacing(16, after: links)
+        column.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(column)
+        NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalToConstant: Self.paneWidth),
+            icon.widthAnchor.constraint(equalToConstant: 96),
+            icon.heightAnchor.constraint(equalToConstant: 96),
+            column.topAnchor.constraint(equalTo: view.topAnchor, constant: 28),
+            column.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -24),
+            column.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            column.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -40),
+        ])
+        self.view = view
+        view.layoutSubtreeIfNeeded()
+        preferredContentSize = NSSize(width: Self.paneWidth, height: view.fittingSize.height)
+    }
+
+    private static var version: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let short = info["CFBundleShortVersionString"] as? String ?? "dev"
+        let build = info["CFBundleVersion"] as? String
+        return build == nil || build == short ? short : "\(short) (\(build!))"
+    }
+}
+
+/// A borderless button drawn as a link, opening a URL.
+@MainActor
+final class LinkButton: NSButton {
+    private var url: String
+
+    init(title: String, url: String) {
+        self.url = url
+        super.init(frame: .zero)
+        isBordered = false
+        setButtonType(.momentaryChange)
+        target = self
+        action = #selector(open(_:))
+        set(title: title, url: url)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func set(title: String, url: String) {
+        self.url = url
+        attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.linkColor,
+        ])
+        toolTip = url
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    @objc private func open(_ sender: Any?) {
+        guard let target = URL(string: url) else { return }
+        NSWorkspace.shared.open(target)
     }
 }
