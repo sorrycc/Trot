@@ -35,7 +35,7 @@ final class TranslateController {
         panel.onServiceChange = { [weak self] kind in
             Settings.service = kind
             guard let self, let source = retranslationSource(),
-                panel.mode == .result || !panel.resultText.isEmpty || panel.showsError
+                panel.mode == .result || !panel.resultText.isEmpty || panel.showsError || panel.isStreaming
             else { return }
             translate(source, to: target)
         }
@@ -55,8 +55,10 @@ final class TranslateController {
     }
 
     /// What the chip and the service picker retranslate: in input mode the
-    /// field as it stands, else the text that was translated.
+    /// field as it stands, else the text that was translated. Nothing
+    /// while the panel waits for new text, which the old text would supplant.
     private func retranslationSource() -> String? {
+        guard !panel.isReading else { return nil }
         let source = panel.mode == .input ? panel.sourceText.trimmingCharacters(in: .whitespacesAndNewlines) : text
         return source.isEmpty ? nil : source
     }
@@ -157,6 +159,8 @@ final class TranslateController {
         self.target = target
         let kind = Settings.service
         let service = kind.makeService()
+        // The model as requested, not as Settings may say by the end.
+        let model = kind.hasModel ? kind.activeModel : nil
         if panel.mode == .input && panel.isVisible && point == nil {
             panel.setLanguages(detected: detected, target: target)
             panel.beginInInput(service: kind)
@@ -175,7 +179,7 @@ final class TranslateController {
                     panel.showError("\(kind.displayName) sent back an empty translation.", action: ("Retry", { [weak self] in self?.retry() }))
                     return
                 }
-                panel.finish(status: Self.status(for: kind, elapsed: start.duration(to: .now), cut: cut))
+                panel.finish(status: Self.status(model: model, elapsed: start.duration(to: .now), cut: cut))
             } catch {
                 guard let self, generation == run, !Task.isCancelled, panel.isVisible else { return }
                 let action: (String, () -> Void) =
@@ -202,14 +206,15 @@ final class TranslateController {
         return (String(text.prefix(maxCharacters)), true)
     }
 
-    /// The footer after a translation: the model when the service has one,
-    /// the time it took, and a note when the text was cut.
-    static func status(for kind: ServiceKind, elapsed: Duration, cut: Bool) -> String {
+    /// The footer after a translation: a note when the text was cut, the
+    /// time it took, and the model when the service has one. The model
+    /// comes last since a long name is cut at the end of the line.
+    static func status(model: String?, elapsed: Duration, cut: Bool) -> String {
         let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
         var parts: [String] = []
-        if kind.hasModel { parts.append(kind.activeModel) }
+        if cut { parts.append("First \(maxCharacters.formatted()) characters") }
         parts.append(String(format: "%.1f s", seconds))
-        if cut { parts.append("first \(maxCharacters.formatted()) characters") }
+        if let model { parts.append(model) }
         return parts.joined(separator: " · ")
     }
 

@@ -141,6 +141,15 @@ final class ShortcutRecorder: NSButton {
         if isRecording { window?.makeFirstResponder(self) }
     }
 
+    /// Recording ends with the window's key status, as the keys go elsewhere then.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isRecording = false }
+        }
+    }
+
     /// Takes Cmd combinations before the menu does.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard isRecording, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
@@ -173,7 +182,7 @@ final class ShortcutRecorder: NSButton {
         if isRecording {
             let held = Shortcut(key: "", keyCode: 0, modifiers: heldModifiers).displayString
             attributedTitle = NSAttributedString(string: held.isEmpty ? "Type Shortcut…" : held + "…", attributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize), .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize), .foregroundColor: NSColor.alternateSelectedControlTextColor,
             ])
             setAccessibilityLabel("Recording a shortcut")
         } else if let shortcut {

@@ -41,8 +41,10 @@ struct OpenAIService: TranslationService {
             } catch TranslationError.notAStream(let body) {
                 // A gateway that ignored `stream` sends the whole completion at once.
                 guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-                    let choices = json["choices"] as? [[String: Any]],
-                    let message = choices.first?["message"] as? [String: Any], let content = message["content"] as? String
+                    let choices = json["choices"] as? [[String: Any]]
+                else { throw TranslationError.notAStream(body) }
+                if choices.first?["finish_reason"] as? String == "content_filter" { throw TranslationError.refused("") }
+                guard let message = choices.first?["message"] as? [String: Any], let content = message["content"] as? String
                 else { throw TranslationError.notAStream(body) }
                 continuation.yield(content)
                 if choices.first?["finish_reason"] as? String == "length" { throw TranslationError.truncated }

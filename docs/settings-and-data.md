@@ -11,7 +11,7 @@ Settings opens from the menu bar icon or with ⌘, while a Trot window is key. C
 | General | Open Trot at login | off | Through the system login items. When macOS waits for approval, the pane says so |
 | General | Accessibility | | Shows whether the permission is granted |
 | Services | Service | OpenAI Compatible | The active service, also switchable in the panel |
-| Services | Base URL | per service | OpenAI Compatible: `https://api.openai.com/v1`. Claude: `https://api.anthropic.com`. Point it at DeepSeek, Qwen, Ollama or a proxy. A missing scheme is added and a pasted endpoint path dropped; the pane shows the URL requests go to |
+| Services | Base URL | per service | OpenAI Compatible: `https://api.openai.com/v1`. Claude: `https://api.anthropic.com`. Point it at DeepSeek, Qwen, Ollama or a proxy. A missing scheme is added (`http` for localhost and `.local` names, `https` otherwise) and a pasted endpoint path dropped; the pane shows the URL requests go to |
 | Services | API key | empty | DeepL keys ending in `:fx` use the free API |
 | Services | Model | per service | OpenAI Compatible: `gpt-4o-mini`. Claude: `claude-opus-5-5` |
 | Services | Test | | Translates a sentence with the current settings, from English into whatever English goes to, and shows the result or the error |
@@ -37,7 +37,7 @@ Shortcuts are registered system-wide through Carbon hotkeys, which work without 
 | DeepL | `POST /v2/translate` on the free or Pro host, chosen by the key's suffix | no |
 | Google | The `translate_a/single` endpoint Google's web client uses, with the text in a form body. No key. Unofficial, so it can stop working | no |
 
-DeepL and Google are told the source language only when the script makes it certain (Chinese, Japanese, Korean, Arabic, Russian, Thai); for Latin-script text they detect it themselves, which beats a local guess on a short string. The LLM services always get the detected language as a hint.
+DeepL and Google are told the source language only when the script makes it certain (Chinese, Japanese, Korean, Thai); for everything else they detect it themselves, which beats a local guess on a short string or a script several languages share. The LLM services always get the detected language as a hint.
 
 The connection to the service opens when a hotkey is pressed, so its setup overlaps with reading the selection. Requests give up after 30 seconds without data and 3 minutes in all. A reply that isn't a translation, such as a web page from a wrong base URL, is shown as an error rather than an empty result, and so are an empty translation and one the service cut off at its output limit. A status code with no message of its own reads as a sentence, such as "The API key was rejected (HTTP 401)". Errors that Settings can fix, a missing or rejected key or a wrong base URL, come with an Open Settings button; Google, which has nothing to set, gets Retry.
 

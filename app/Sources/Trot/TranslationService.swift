@@ -71,12 +71,16 @@ enum ServiceKind: String, CaseIterable, Codable, Sendable {
     }
 
     /// `raw` as a base URL the service's paths append to: a scheme when
-    /// there is none, no trailing slashes, and without the path of the
+    /// there is none (plain http for a machine on the desk, which rarely
+    /// speaks TLS), no trailing slashes, and without the path of the
     /// endpoint itself, which is pasted along more often than not.
     static func normalizedBaseURL(_ raw: String, for kind: ServiceKind) -> String {
         var url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return url }
-        if !url.contains("://") { url = "https://" + url }
+        if !url.contains("://") {
+            let host = url.split(separator: "/", maxSplits: 1).first.map(String.init) ?? url
+            url = (isLocal(host: host) ? "http://" : "https://") + url
+        }
         while url.hasSuffix("/") { url.removeLast() }
         let endpoints: [String] =
             switch kind {
@@ -89,6 +93,14 @@ enum ServiceKind: String, CaseIterable, Codable, Sendable {
             break
         }
         return url
+    }
+
+    /// Loopback and link-local names, with or without a port.
+    private static func isLocal(host: String) -> Bool {
+        var name = host.lowercased()
+        if name.hasPrefix("[") { return name.hasPrefix("[::1]") }
+        if let colon = name.lastIndex(of: ":") { name = String(name[..<colon]) }
+        return name == "localhost" || name.hasPrefix("127.") || name == "0.0.0.0" || name.hasSuffix(".local")
     }
 
     /// The service with its current settings. Cheap, so callers make one per request.

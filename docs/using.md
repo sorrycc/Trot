@@ -11,7 +11,7 @@ The panel is one floating card. From top to bottom:
 - **Pin** (⌘P), which keeps the panel open when you click elsewhere. Without it, a click in another app closes the panel.
 - **Close**, also Escape or ⌘W.
 - The **source text** and the **translation**, which streams in as the service produces it. Both are selectable. ⌘C with nothing selected copies the whole translation.
-- The **footer**, with the model and how long the translation took. The speaker button reads the translation aloud with the system voice for its language; the copy button copies it.
+- The **footer**, with how long the translation took and, for an LLM service, the model. The speaker button reads the translation aloud with the system voice for its language; the copy button copies it.
 
 While a translation streams in, the card grows smoothly with the text and an accent-coloured cursor marks where the next words will land. The cursor stays solid while words arrive and blinks when the stream goes quiet.
 
@@ -39,7 +39,7 @@ This needs the Accessibility permission. Trot asks at its first launch; Settings
 
 ## Translating typed text (⌥A)
 
-The panel opens pinned with an editable field. Return translates, Shift+Return adds a line break. Once translated, the typed text steps back to grey under the result; editing it brings it forward again. A target picked from the language chip holds for the next Return.
+The panel opens pinned with an editable field. Return translates, Shift+Return adds a line break. Once translated, the typed text steps back to grey under the result; editing it brings it forward again. A target picked from the language chip holds while the panel stays open.
 
 ## Translating a screenshot (⌥S)
 

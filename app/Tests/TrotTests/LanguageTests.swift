@@ -48,8 +48,11 @@ struct LanguageTests {
     @Test func onlyScriptsNobodyMistakesAreCertain() {
         #expect(Language.chineseSimplified.isScriptCertain)
         #expect(Language.korean.isScriptCertain)
+        #expect(Language.thai.isScriptCertain)
         #expect(!Language.english.isScriptCertain)
-        #expect(!Language.french.isScriptCertain)
+        // Ukrainian and Persian share these scripts and would be mistaken.
+        #expect(!Language.russian.isScriptCertain)
+        #expect(!Language.arabic.isScriptCertain)
     }
 
     @Test func emptyAndBlankTextHaveNoLanguage() {

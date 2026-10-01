@@ -15,7 +15,8 @@ http://127.0.0.1:48765/v1 and any key. Paths change the behaviour:
     /long/chat/completions     several screens of text, for the scrolling result
     /length/chat/completions   stops with finish_reason "length", as a cut-off reply does
 
-The app can be pointed at it without touching the saved settings:
+The app can be pointed at it for one run, leaving the saved base URL and
+key alone (the -service argument pins the service for that run):
 
     open build/Trot.app --args -service openAI \
         -service.openAI.baseURL http://127.0.0.1:48765/v1 -service.openAI.apiKey x -translate hello
@@ -36,6 +37,11 @@ LONG = "\n\n".join(TEXT for _ in range(12))
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002
         sys.stderr.write("%s %s\n" % (self.command, self.path))
+
+    def do_HEAD(self):
+        # The app opens its connection ahead of the request with a HEAD.
+        self.send_response(204)
+        self.end_headers()
 
     def do_POST(self):
         length = int(self.headers.get("content-length", 0))

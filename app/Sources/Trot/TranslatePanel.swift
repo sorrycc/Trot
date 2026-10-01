@@ -92,7 +92,10 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     private(set) var showsError = false
     /// Waiting for the selection or a screenshot: only the header and the
     /// footer show, with what is being waited for.
-    private var isReading = false
+    private(set) var isReading = false
+    /// The layout the window was last sized for, so any change since then
+    /// resizes it, whoever made the change.
+    private var appliedLayout: [CGFloat] = []
 
     private static let sourceAttributes: [NSAttributedString.Key: Any] = {
         let style = NSMutableParagraphStyle()
@@ -363,15 +366,18 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         let fresh = !isVisible || !sourceView.isEditable
         mode = .input
         isReading = false
+        showsError = false
         detected = nil
         if fresh {
             pickedTarget = nil
             target = Settings.firstLanguage
             setText("", in: sourceView, attributes: Self.inputAttributes)
             clearResult()
+        } else {
+            // Text left grey by its translation is the draft again.
+            applyAttributes(Self.inputAttributes, to: sourceView)
         }
         sourceView.isEditable = true
-        sourceView.typingAttributes = Self.inputAttributes
         placeholder.isHidden = !sourceView.string.isEmpty
         showLanguages()
         showStatus("↩ Translate   ⇧↩ New line")
@@ -545,6 +551,9 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         pendingChunks = ""
         isStreaming = false
         renderResult()
+        // A box left at its cap by a long result would stay there for the
+        // next stream, which skips measuring once the box is full.
+        resultHeight.constant = 20
     }
 
     /// Ends the stream and drops the cursor in place, so a long result is
@@ -594,6 +603,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
 
     private func showStatus(_ text: String) {
         statusLabel.stringValue = text
+        statusLabel.toolTip = text.isEmpty ? nil : text
     }
 
     /// Tells VoiceOver what just arrived; the text itself changes silently.
@@ -605,8 +615,9 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     private func present(near point: NSPoint, key: Bool = true) {
-        layoutScreen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
         if isVisible {
+            // The panel stays where it is, so it is sized for that screen.
+            layoutScreen = screen
             updateLayout()
             contentView?.layer?.removeAnimation(forKey: "exit")
             // Shown again during the fade-out: keep it, at full strength.
@@ -618,6 +629,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
             if key, !Self.previewOnly, !isKeyWindow { makeKeyAndOrderFront(nil) }
             return
         }
+        layoutScreen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
         updateLayout()
         place(near: point)
         presentation &+= 1
@@ -698,7 +710,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// ⌘W closes, like a window. ⌘P pins, ⌘L opens the language menu and
     /// ⌘1 to ⌘4 pick a service, so the panel works without the mouse.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, let key = event.charactersIgnoringModifiers {
+        if event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command, let key = event.charactersIgnoringModifiers {
             switch key {
             case "w":
                 closePanel(nil)
@@ -733,6 +745,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
         origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
         setFrame(NSRect(origin: origin, size: size), display: false)
+        appliedLayout = layoutState
     }
 
     /// How long the card takes to grow to new text. Short enough that a
@@ -774,7 +787,6 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         let room = (layoutScreen ?? screen ?? NSScreen.main)?.visibleFrame.height ?? 800
         let sourceCap = mode == .input ? room * 0.3 : Self.sourceCap
         let resultCap = room * 0.5
-        let before = layoutState
         sourceHeight.constant = min(max(textHeight(sourceView, cap: sourceCap), 20), sourceCap)
         // Once the result fills its box, more text only scrolls.
         if resultHeight.constant < resultCap || !isStreaming {
@@ -790,15 +802,18 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         copyButton.isHidden = resultText.isEmpty
         speakButton.isHidden = resultText.isEmpty || isStreaming
         footer.isHidden = statusLabel.stringValue.isEmpty && copyButton.isHidden && speakButton.isHidden
-        let after = layoutState
-        // Measuring the window forces a layout pass, so only when something moved.
-        if isVisible, before != after { resizeKeepingTop() }
+        // Measuring the window forces a layout pass, so only when something
+        // moved since the window was last sized.
+        let state = layoutState
+        guard isVisible, state != appliedLayout else { return }
+        appliedLayout = state
+        resizeKeepingTop()
     }
 
     /// Everything that moves the card's height, for telling when it did.
     private var layoutState: [CGFloat] {
         [sourceHeight.constant, resultHeight.constant]
-            + [resultScroll, footer, copyButton, speakButton, notice, actionButton, sourceScroll].map { $0.isHidden ? 1 : 0 }
+            + [resultScroll, footer, copyButton, speakButton, notice, actionButton, sourceScroll, separator].map { $0.isHidden ? 1 : 0 }
     }
 
     /// The height of the text, measured only as far as `cap`: a long
@@ -898,9 +913,11 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     @objc private func targetPicked(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let language = Language(rawValue: raw), language != target else { return }
-        target = language
+        guard let raw = sender.representedObject as? String, let language = Language(rawValue: raw) else { return }
+        // Picking the target already shown still pins it for the next Return.
         pickedTarget = language
+        guard language != target else { return }
+        target = language
         showLanguages()
         onTargetChange?(language)
     }
@@ -1020,6 +1037,7 @@ private final class Pill: NSView {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
+    override var wantsUpdateLayer: Bool { true }
 
     /// Runs with the current appearance, so the fill follows light and dark.
     override func updateLayer() {

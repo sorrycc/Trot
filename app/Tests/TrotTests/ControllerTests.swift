@@ -22,10 +22,10 @@ struct ControllerTests {
         #expect(cut.count == TranslateController.maxCharacters && wasCut)
     }
 
-    @Test func theStatusNamesTheModelTheTimeAndACut() {
-        let status = TranslateController.status(for: .deepL, elapsed: .milliseconds(1250), cut: false)
+    @Test func theStatusNamesTheCutTheTimeAndTheModel() {
+        let status = TranslateController.status(model: nil, elapsed: .milliseconds(1250), cut: false)
         #expect(status == "1.3 s" || status == "1.2 s")
-        #expect(TranslateController.status(for: .google, elapsed: .seconds(2), cut: true).hasSuffix("characters"))
-        #expect(TranslateController.status(for: .openAI, elapsed: .seconds(2), cut: false).hasPrefix(ServiceKind.openAI.activeModel + " · "))
+        #expect(TranslateController.status(model: nil, elapsed: .seconds(2), cut: true).hasPrefix("First 20,000 characters · "))
+        #expect(TranslateController.status(model: "gpt-4o-mini", elapsed: .seconds(2), cut: false) == "2.0 s · gpt-4o-mini")
     }
 }

@@ -50,7 +50,10 @@ class SettingsPane: NSViewController {
     static let popUpWidth: CGFloat = 200
     static let paneWidth: CGFloat = 540
     static let labelWidth: CGFloat = 140
+    static let verticalInset: CGFloat = 20
     private var lastRow: NSGridRow?
+    /// The labelled row above each note row, for the gap under it.
+    private var noteParents: [ObjectIdentifier: NSGridRow] = [:]
 
     init(title: String) {
         super.init(nibName: nil, bundle: nil)
@@ -68,8 +71,8 @@ class SettingsPane: NSViewController {
         view.addSubview(grid)
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: Self.paneWidth),
-            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
-            grid.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: Self.verticalInset),
+            grid.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Self.verticalInset),
             grid.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             grid.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -20),
         ])
@@ -79,8 +82,7 @@ class SettingsPane: NSViewController {
             grid.column(at: 0).xPlacement = .trailing
             grid.column(at: 0).width = Self.labelWidth
         }
-        view.layoutSubtreeIfNeeded()
-        preferredContentSize = NSSize(width: Self.paneWidth, height: view.fittingSize.height)
+        remeasure()
     }
 
     /// Subclasses add their rows here.
@@ -103,7 +105,26 @@ class SettingsPane: NSViewController {
         let row = grid.addRow(with: [NSGridCell.emptyContentView, note])
         row.topPadding = -4
         row.bottomPadding = 6
+        if let lastRow { noteParents[ObjectIdentifier(row)] = lastRow }
         return row
+    }
+
+    /// Hides or shows a note row. The row above keeps the gap the note
+    /// would have left, and the pane is measured again.
+    func setNote(_ row: NSGridRow?, hidden: Bool) {
+        guard let row else { return }
+        row.isHidden = hidden
+        noteParents[ObjectIdentifier(row)]?.bottomPadding = hidden ? 6 : 0
+        remeasure()
+    }
+
+    /// The pane's size for its rows as they are now. The grid is measured
+    /// rather than the view: the view's fitting size stays at its first
+    /// value once rows are hidden, the grid's follows them.
+    func remeasure() {
+        guard isViewLoaded else { return }
+        view.layoutSubtreeIfNeeded()
+        preferredContentSize = NSSize(width: Self.paneWidth, height: ceil(grid.fittingSize.height) + Self.verticalInset * 2)
     }
 
     static func note(_ text: String = "", lines: Int = 2) -> NSTextField {
@@ -181,7 +202,6 @@ final class GeneralSettingsPane: SettingsPane {
     private var secondPopUp: NSPopUpButton?
     private let loginCheckbox = NSButton(checkboxWithTitle: "Open Trot at login", target: nil, action: nil)
     private let loginNote = SettingsPane.note()
-    private var loginRow: NSGridRow?
     private var loginNoteRow: NSGridRow?
     private let accessibilityStatus = StatusLine()
     private let accessibilityButton = NSButton(title: "Open System Settings…", target: nil, action: nil)
@@ -209,8 +229,9 @@ final class GeneralSettingsPane: SettingsPane {
 
         loginCheckbox.target = self
         loginCheckbox.action = #selector(loginChanged(_:))
-        loginRow = addRow("Launch:", loginCheckbox)
+        addRow("Launch:", loginCheckbox)
         loginNoteRow = addNote(loginNote)
+        showLoginState()
 
         accessibilityButton.target = self
         accessibilityButton.action = #selector(openAccessibility(_:))
@@ -248,10 +269,7 @@ final class GeneralSettingsPane: SettingsPane {
         } else if Settings.loginItemNeedsApproval {
             Self.show("Waiting for approval in System Settings › General › Login Items.", in: loginNote, warning: true)
         }
-        let hidden = error == nil && !Settings.loginItemNeedsApproval
-        loginNoteRow?.isHidden = hidden
-        // Without its note the row keeps the gap the note would have left.
-        loginRow?.bottomPadding = hidden ? 6 : 0
+        setNote(loginNoteRow, hidden: error == nil && !Settings.loginItemNeedsApproval)
     }
 
     /// Picking the other pop-up's language swaps the two, so the rule
@@ -371,7 +389,7 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         if let page = kind.keyPage {
             keyLink.set(title: "Get an API key from \(kind.shortName)…", url: page)
         }
-        keyLinkRow?.isHidden = kind.keyPage == nil
+        setNote(keyLinkRow, hidden: kind.keyPage == nil)
         modelRow?.isHidden = !kind.hasModel
         baseURLField.stringValue = Settings.baseURL(for: kind)
         baseURLField.placeholderString = kind.defaultBaseURL
@@ -396,15 +414,15 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         let typed = baseURLField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = ServiceKind.normalizedBaseURL(typed, for: kind)
         if typed.isEmpty {
-            baseURLNoteRow?.isHidden = true
+            setNote(baseURLNoteRow, hidden: true)
         } else if URL(string: normalized)?.host() == nil {
             Self.show("Enter a URL such as \(kind.defaultBaseURL).", in: baseURLNote, warning: true)
-            baseURLNoteRow?.isHidden = false
+            setNote(baseURLNoteRow, hidden: false)
         } else if normalized != typed {
             Self.show("Requests go to \(normalized).", in: baseURLNote)
-            baseURLNoteRow?.isHidden = false
+            setNote(baseURLNoteRow, hidden: false)
         } else {
-            baseURLNoteRow?.isHidden = true
+            setNote(baseURLNoteRow, hidden: true)
         }
     }
 
@@ -468,7 +486,7 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
                 .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
             testIcon.contentTintColor = tint
         }
-        testRow?.isHidden = text == nil
+        setNote(testRow, hidden: text == nil)
     }
 }
 
@@ -510,7 +528,7 @@ final class ShortcutsSettingsPane: SettingsPane {
     private func record(_ shortcut: Shortcut?, for action: HotKeyAction) {
         if let shortcut, let taken = HotKeyAction.allCases.first(where: { $0 != action && Settings.shortcut(for: $0) == shortcut }) {
             Self.show("Already used by \(taken.displayName).", in: notes[action]!, warning: true)
-            noteRows[action]?.isHidden = false
+            setNote(noteRows[action], hidden: false)
             return
         }
         Settings.setShortcut(shortcut, for: action)
@@ -523,7 +541,7 @@ final class ShortcutsSettingsPane: SettingsPane {
         let standard = action.defaultShortcut
         if let taken = HotKeyAction.allCases.first(where: { $0 != action && Settings.shortcut(for: $0) == standard }) {
             Self.show("\(standard.displayString) is used by \(taken.displayName).", in: notes[action]!, warning: true)
-            noteRows[action]?.isHidden = false
+            setNote(noteRows[action], hidden: false)
             return
         }
         Settings.resetShortcut(for: action)
@@ -539,7 +557,7 @@ final class ShortcutsSettingsPane: SettingsPane {
         let id = UInt32((HotKeyAction.allCases.firstIndex(of: action) ?? 0) + 1)
         let taken = Settings.shortcut(for: action) != nil && !HotKeyCenter.shared.isRegistered(id: id)
         Self.show(taken ? "Another app holds this shortcut, so it won't work." : "", in: note, warning: true)
-        noteRows[action]?.isHidden = !taken
+        setNote(noteRows[action], hidden: !taken)
         resets[action]?.isEnabled = Settings.shortcutIsCustom(for: action)
     }
 }

@@ -114,10 +114,12 @@ enum Language: String, CaseIterable, Codable, Sendable {
         self = match
     }
 
-    /// Languages the script alone identifies, so detection is never a guess.
+    /// Languages whose script no other language here shares, so detection
+    /// is never a guess. Cyrillic and Arabic script are not: Ukrainian or
+    /// Persian would be called Russian or Arabic.
     var isScriptCertain: Bool {
         switch self {
-        case .chineseSimplified, .chineseTraditional, .japanese, .korean, .thai, .arabic, .russian: true
+        case .chineseSimplified, .chineseTraditional, .japanese, .korean, .thai: true
         default: false
         }
     }

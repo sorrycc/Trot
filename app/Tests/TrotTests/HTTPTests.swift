@@ -30,6 +30,11 @@ struct HTTPTests {
         #expect(ServiceKind.normalizedBaseURL("https://api.anthropic.com/v1", for: .claude) == "https://api.anthropic.com")
         #expect(ServiceKind.normalizedBaseURL("https://api.anthropic.com/v1/messages", for: .claude) == "https://api.anthropic.com")
         #expect(ServiceKind.normalizedBaseURL("http://localhost:11434/v1", for: .openAI) == "http://localhost:11434/v1")
+        // A machine on the desk rarely speaks TLS.
+        #expect(ServiceKind.normalizedBaseURL("localhost:11434/v1", for: .openAI) == "http://localhost:11434/v1")
+        #expect(ServiceKind.normalizedBaseURL("127.0.0.1:8080/v1/", for: .openAI) == "http://127.0.0.1:8080/v1")
+        #expect(ServiceKind.normalizedBaseURL("mini.local:1234/v1", for: .openAI) == "http://mini.local:1234/v1")
+        #expect(ServiceKind.normalizedBaseURL("api.deepseek.com", for: .openAI) == "https://api.deepseek.com")
         #expect(ServiceKind.normalizedBaseURL("  ", for: .openAI) == "")
     }
 
