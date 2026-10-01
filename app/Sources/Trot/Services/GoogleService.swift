@@ -1,0 +1,35 @@
+import Foundation
+
+/// Google Translate through the endpoint its web client uses. No key, but
+/// unofficial, so it can stop working without notice.
+struct GoogleService: TranslationService {
+    let kind = ServiceKind.google
+
+    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<String, Error> {
+        HTTP.stream { continuation in
+            // The text goes in a form body, where "+" and "&" are escaped and
+            // long selections don't run into URL length limits.
+            let url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t"
+                + "&sl=\(source.map(Self.code) ?? "auto")&tl=\(Self.code(target))"
+            let bytes = try await HTTP.post(
+                url, headers: ["User-Agent": "Mozilla/5.0"], body: HTTP.formBody([("q", text)]),
+                contentType: "application/x-www-form-urlencoded; charset=utf-8"
+            )
+            let data = try await HTTP.collect(bytes)
+            // [[["translated", "source", null, null, 10], ...], null, "en", ...]
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                let sentences = json.first as? [[Any]]
+            else { throw TranslationError.invalidResponse }
+            let translated = sentences.compactMap { $0.first as? String }.joined()
+            continuation.yield(translated)
+        }
+    }
+
+    private static func code(_ language: Language) -> String {
+        switch language {
+        case .chineseSimplified: "zh-CN"
+        case .chineseTraditional: "zh-TW"
+        default: language.rawValue
+        }
+    }
+}
