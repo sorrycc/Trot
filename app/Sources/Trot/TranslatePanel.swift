@@ -407,6 +407,14 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         updateLayout()
     }
 
+    /// Takes the panel off the screen without a word to the owner, for
+    /// when the owner is about to show it again or needs it out of the way.
+    func hide() {
+        guard isVisible else { return }
+        isReading = false
+        dismiss(notifying: false)
+    }
+
     /// The stream was stopped before it ended, by a newer action. What
     /// arrived stays; a panel still waiting for its text has nothing to
     /// keep and goes away.
@@ -1087,6 +1095,9 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     /// The utterance playing now, so a cancel for the previous one that
     /// arrives late doesn't mark this one as finished.
     private var current: AVSpeechUtterance?
+    /// Every utterance whose end hasn't been reported yet, held so that
+    /// its identity can't be reused by a newer one in the meantime.
+    private var inFlight: [AVSpeechUtterance] = []
 
     override init() {
         super.init()
@@ -1100,6 +1111,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
         utterance.voice = AVSpeechSynthesisVoice(language: language.speechLocale)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         current = utterance
+        inFlight.append(utterance)
         synthesizer.speak(utterance)
         isSpeaking = true
     }
@@ -1112,6 +1124,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func ended(_ utterance: ObjectIdentifier) {
+        inFlight.removeAll { ObjectIdentifier($0) == utterance }
         guard let current, ObjectIdentifier(current) == utterance else { return }
         self.current = nil
         isSpeaking = false

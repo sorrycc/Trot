@@ -39,16 +39,18 @@ final class TranslateController {
             else { return }
             translate(source, to: target)
         }
-        panel.onClose = { [weak self] in self?.stop() }
+        panel.onClose = { [weak self] in self?.stop(tellingPanel: false) }
     }
 
-    /// Ends the current translation and any pending read. Returns the new
-    /// generation, for work that continues after an await.
+    /// Ends the current translation and any pending read, and tells the
+    /// panel so a stream in view ends rather than waiting for ever. Returns
+    /// the new generation, for work that continues after an await.
     @discardableResult
-    private func stop() -> Int {
+    private func stop(tellingPanel: Bool = true) -> Int {
         task?.cancel()
         task = nil
         generation &+= 1
+        if tellingPanel { panel.cancelStreaming() }
         return generation
     }
 
@@ -89,7 +91,8 @@ final class TranslateController {
             // the panel waiting. It takes no keys, so ⌘C still reaches the app.
             let waiting = Task {
                 try? await Task.sleep(for: Self.readingDelay)
-                guard !Task.isCancelled, generation == run else { return }
+                // A draft in the input panel is worth more than the notice.
+                guard !Task.isCancelled, generation == run, !(panel.mode == .input && panel.isVisible) else { return }
                 panel.beginReading(status: "Reading the selection…", at: point, key: false)
             }
             let selected = await SelectionReader.read()
@@ -106,22 +109,25 @@ final class TranslateController {
     func showInput() {
         HTTP.preconnect(to: Settings.service)
         // Typing while a typed translation streams is fine; the result
-        // belongs to the field. Anything else is a fresh start.
-        if !(panel.mode == .input && panel.isVisible) { stop() }
+        // belongs to the field. Anything else, a pending selection read
+        // included, is a fresh start.
+        if !(panel.mode == .input && panel.isVisible && panel.isStreaming) { stop() }
         panel.showInput(at: NSEvent.mouseLocation)
     }
 
     func translateScreenshot() {
         let run = stop()
+        // Out of the way of the crosshair, and of its own click monitor,
+        // which would take the first drag for a click elsewhere.
+        panel.hide()
         HTTP.preconnect(to: Settings.service)
         Task {
             do {
-                guard let file = try await ScreenOCR.capture() else {
-                    // Escape in the crosshair: whatever was streaming is over.
-                    if generation == run { panel.cancelStreaming() }
+                guard let file = try await ScreenOCR.capture() else { return }
+                guard generation == run else {
+                    ScreenOCR.discard(file)
                     return
                 }
-                guard generation == run else { return }
                 let point = NSEvent.mouseLocation
                 panel.beginReading(status: "Reading the screenshot…", at: point)
                 let recognized = try await ScreenOCR.recognize(file)

@@ -44,10 +44,15 @@ enum ScreenOCR {
         return file
     }
 
+    /// Drops a capture that is no longer wanted.
+    static func discard(_ file: URL) {
+        try? FileManager.default.removeItem(at: file)
+    }
+
     /// The text in the screenshot, joined into paragraphs. The file is
     /// deleted afterwards.
     static func recognize(_ file: URL) async throws -> String {
-        defer { try? FileManager.default.removeItem(at: file) }
+        defer { discard(file) }
         var request = RecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true

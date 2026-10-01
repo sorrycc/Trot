@@ -81,11 +81,12 @@ enum SelectionReader {
             }
         }
         // The menu check and the pasteboard snapshot are both slow calls
-        // into other processes, so they run side by side.
-        async let copyEnabled = Task.detached(priority: .userInitiated) { pid == 0 ? nil : copyMenuItemEnabled(pid: pid) }.value
-        async let saved = Task.detached(priority: .userInitiated) { snapshot(NSPasteboard.general) }.value
-        if await copyEnabled == false { return nil }
-        return await readThroughPasteboard(pid: pid, saved: await saved)
+        // into other processes, so they run side by side. With no
+        // selection to copy, the snapshot is left to finish on its own.
+        let saved = Task.detached(priority: .userInitiated) { snapshot(NSPasteboard.general) }
+        let copyEnabled = await Task.detached(priority: .userInitiated) { pid == 0 ? nil : copyMenuItemEnabled(pid: pid) }.value
+        if copyEnabled == false { return nil }
+        return await readThroughPasteboard(pid: pid, saved: await saved.value)
     }
 
     private nonisolated static func readThroughAccessibility() -> AXAnswer {
