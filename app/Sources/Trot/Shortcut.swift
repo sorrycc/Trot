@@ -95,14 +95,22 @@ struct Shortcut: Equatable, Sendable {
 }
 
 /// A button that records a shortcut: click it, then press the combination.
-/// Escape cancels and Delete clears.
+/// While recording it shows the modifiers held so far in the accent
+/// colour. Escape cancels and Delete clears.
 @MainActor
 final class ShortcutRecorder: NSButton {
     var shortcut: Shortcut? { didSet { updateTitle() } }
     /// Called with the combination pressed, or nil for Delete.
     var onRecord: ((Shortcut?) -> Void)?
 
-    private var isRecording = false { didSet { updateTitle() } }
+    private var isRecording = false {
+        didSet {
+            heldModifiers = []
+            bezelColor = isRecording ? .controlAccentColor : nil
+            updateTitle()
+        }
+    }
+    private var heldModifiers: NSEvent.ModifierFlags = []
 
     init() {
         super.init(frame: .zero)
@@ -120,6 +128,12 @@ final class ShortcutRecorder: NSButton {
     override func resignFirstResponder() -> Bool {
         isRecording = false
         return super.resignFirstResponder()
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isRecording else { return super.flagsChanged(with: event) }
+        heldModifiers = event.modifierFlags.intersection(Shortcut.allowedModifiers)
+        updateTitle()
     }
 
     @objc private func clicked(_ sender: Any?) {
@@ -156,6 +170,20 @@ final class ShortcutRecorder: NSButton {
     }
 
     private func updateTitle() {
-        title = isRecording ? "Type Shortcut…" : shortcut?.displayString ?? "None"
+        if isRecording {
+            let held = Shortcut(key: "", keyCode: 0, modifiers: heldModifiers).displayString
+            attributedTitle = NSAttributedString(string: held.isEmpty ? "Type Shortcut…" : held + "…", attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize), .foregroundColor: NSColor.white,
+            ])
+            setAccessibilityLabel("Recording a shortcut")
+        } else if let shortcut {
+            title = shortcut.displayString
+            setAccessibilityLabel("Shortcut \(shortcut.displayString)")
+        } else {
+            attributedTitle = NSAttributedString(string: "None", attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize), .foregroundColor: NSColor.tertiaryLabelColor,
+            ])
+            setAccessibilityLabel("No shortcut")
+        }
     }
 }

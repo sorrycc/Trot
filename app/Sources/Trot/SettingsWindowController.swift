@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 /// The Settings window (Cmd+,), with General, Services and Shortcuts panes.
 /// Every change is saved as it is made.
@@ -46,8 +47,10 @@ final class SettingsWindowController: NSWindowController {
 class SettingsPane: NSViewController {
     let grid = NSGridView()
     static let controlWidth: CGFloat = 340
+    static let popUpWidth: CGFloat = 200
     static let paneWidth: CGFloat = 540
     static let labelWidth: CGFloat = 140
+    private var lastRow: NSGridRow?
 
     init(title: String) {
         super.init(nibName: nil, bundle: nil)
@@ -83,26 +86,32 @@ class SettingsPane: NSViewController {
     /// Subclasses add their rows here.
     func buildRows() {}
 
+    /// A labelled row. Rows are spaced the same whether or not a note
+    /// follows: the gap goes under the note when there is one.
     @discardableResult
     func addRow(_ label: String, _ control: NSView) -> NSGridRow {
-        grid.addRow(with: [NSTextField(labelWithString: label), control])
+        let row = grid.addRow(with: [NSTextField(labelWithString: label), control])
+        row.bottomPadding = 6
+        lastRow = row
+        return row
     }
 
     /// A note under the control in the row above.
     @discardableResult
     func addNote(_ note: NSView) -> NSGridRow {
+        lastRow?.bottomPadding = 0
         let row = grid.addRow(with: [NSGridCell.emptyContentView, note])
         row.topPadding = -4
         row.bottomPadding = 6
         return row
     }
 
-    static func note(_ text: String = "") -> NSTextField {
+    static func note(_ text: String = "", lines: Int = 2) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: 11)
         label.textColor = .secondaryLabelColor
         label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 2
+        label.maximumNumberOfLines = lines
         label.preferredMaxLayoutWidth = controlWidth
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return label
@@ -123,6 +132,7 @@ class SettingsPane: NSViewController {
         return view
     }
 
+    /// Pop-ups share one width, so the right edge of the form stays straight.
     static func popUp<T: RawRepresentable<String> & Equatable>(
         _ cases: [T], title: (T) -> String, selected: T, target: AnyObject, action: Selector
     ) -> NSPopUpButton {
@@ -134,7 +144,33 @@ class SettingsPane: NSViewController {
         button.selectItem(at: cases.firstIndex(of: selected) ?? 0)
         button.target = target
         button.action = action
+        _ = fixWidth(button, popUpWidth)
         return button
+    }
+}
+
+/// A coloured dot and a word, for the state of a permission.
+@MainActor
+final class StatusLine: NSStackView {
+    private let dot = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        dot.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 8, weight: .regular))
+        spacing = 5
+        alignment = .firstBaseline
+        addArrangedSubview(dot)
+        addArrangedSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show(_ text: String, ok: Bool) {
+        label.stringValue = text
+        dot.contentTintColor = ok ? .systemGreen : .systemOrange
+        setAccessibilityLabel(text)
     }
 }
 
@@ -144,7 +180,10 @@ final class GeneralSettingsPane: SettingsPane {
     private var firstPopUp: NSPopUpButton?
     private var secondPopUp: NSPopUpButton?
     private let loginCheckbox = NSButton(checkboxWithTitle: "Open Trot at login", target: nil, action: nil)
-    private let accessibilityStatus = NSTextField(labelWithString: "")
+    private let loginNote = SettingsPane.note()
+    private var loginRow: NSGridRow?
+    private var loginNoteRow: NSGridRow?
+    private let accessibilityStatus = StatusLine()
     private let accessibilityButton = NSButton(title: "Open System Settings…", target: nil, action: nil)
 
     init() { super.init(title: "General") }
@@ -157,7 +196,7 @@ final class GeneralSettingsPane: SettingsPane {
             target: self, action: #selector(firstChanged(_:))
         )
         firstPopUp = first
-        addRow("Translate into:", first)
+        addRow("First language:", first)
         addNote(Self.note("Text in any other language is translated into this one."))
 
         let second = Self.popUp(
@@ -165,17 +204,20 @@ final class GeneralSettingsPane: SettingsPane {
             target: self, action: #selector(secondChanged(_:))
         )
         secondPopUp = second
-        addRow("And from it into:", second)
-        addNote(Self.note("Text already in the first language goes here instead."))
+        addRow("Second language:", second)
+        addNote(Self.note("Text already in the first language is translated into this one."))
 
         loginCheckbox.target = self
         loginCheckbox.action = #selector(loginChanged(_:))
-        addRow("Launch:", loginCheckbox)
+        loginRow = addRow("Launch:", loginCheckbox)
+        loginNoteRow = addNote(loginNote)
 
         accessibilityButton.target = self
         accessibilityButton.action = #selector(openAccessibility(_:))
+        accessibilityButton.controlSize = .small
         let row = NSStackView(views: [accessibilityStatus, accessibilityButton])
-        row.spacing = 8
+        row.spacing = 10
+        row.alignment = .firstBaseline
         addRow("Accessibility:", row)
         addNote(Self.note("Needed to read the selected text in other apps."))
         NotificationCenter.default.addObserver(
@@ -192,24 +234,47 @@ final class GeneralSettingsPane: SettingsPane {
         firstPopUp?.selectItem(at: Language.allCases.firstIndex(of: Settings.firstLanguage) ?? 0)
         secondPopUp?.selectItem(at: Language.allCases.firstIndex(of: Settings.secondLanguage) ?? 0)
         loginCheckbox.state = Settings.launchesAtLogin ? .on : .off
+        showLoginState()
         let trusted = Accessibility.isTrusted
-        accessibilityStatus.stringValue = trusted ? "Allowed" : "Not allowed"
-        accessibilityStatus.textColor = trusted ? .labelColor : .systemOrange
+        accessibilityStatus.show(trusted ? "Allowed" : "Not allowed", ok: trusted)
         accessibilityButton.isHidden = trusted
     }
 
+    /// macOS can hold a login item until the user approves it; the note
+    /// says so and where to go.
+    private func showLoginState(error: Error? = nil) {
+        if let error {
+            Self.show(error.localizedDescription, in: loginNote, warning: true)
+        } else if Settings.loginItemNeedsApproval {
+            Self.show("Waiting for approval in System Settings › General › Login Items.", in: loginNote, warning: true)
+        }
+        let hidden = error == nil && !Settings.loginItemNeedsApproval
+        loginNoteRow?.isHidden = hidden
+        // Without its note the row keeps the gap the note would have left.
+        loginRow?.bottomPadding = hidden ? 6 : 0
+    }
+
+    /// Picking the other pop-up's language swaps the two, so the rule
+    /// always has somewhere to go.
     @objc private func firstChanged(_ sender: NSPopUpButton) {
         guard let raw = sender.selectedItem?.representedObject as? String, let language = Language(rawValue: raw) else { return }
-        Settings.firstLanguage = language
+        Settings.setLanguages(first: language, second: Settings.secondLanguage)
+        refresh(nil)
     }
 
     @objc private func secondChanged(_ sender: NSPopUpButton) {
         guard let raw = sender.selectedItem?.representedObject as? String, let language = Language(rawValue: raw) else { return }
-        Settings.secondLanguage = language
+        Settings.setLanguages(first: Settings.firstLanguage, second: language)
+        refresh(nil)
     }
 
     @objc private func loginChanged(_ sender: NSButton) {
-        Settings.launchesAtLogin = sender.state == .on
+        do {
+            try Settings.setLaunchesAtLogin(sender.state == .on)
+            showLoginState()
+        } catch {
+            showLoginState(error: error)
+        }
         sender.state = Settings.launchesAtLogin ? .on : .off
     }
 
@@ -224,13 +289,18 @@ final class GeneralSettingsPane: SettingsPane {
 final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
     private var servicePopUp: NSPopUpButton?
     private let baseURLField = NSTextField()
+    private let baseURLNote = SettingsPane.note()
+    private var baseURLNoteRow: NSGridRow?
     private let keyField = NSSecureTextField()
     private let modelField = NSTextField()
     private let serviceNote = SettingsPane.note()
     private let keyLink = SettingsPane.link("", to: "")
     private var keyLinkRow: NSGridRow?
     private let testButton = NSButton(title: "Test", target: nil, action: nil)
-    private let testNote = SettingsPane.note()
+    private let testSpinner = NSProgressIndicator()
+    private let testIcon = NSImageView()
+    private let testNote = SettingsPane.note(lines: 3)
+    private var testRow: NSGridRow?
     private var baseURLRow: NSGridRow?
     private var keyRow: NSGridRow?
     private var modelRow: NSGridRow?
@@ -256,15 +326,24 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
             field.usesSingleLineMode = true
         }
         baseURLRow = addRow("Base URL:", Self.fixWidth(baseURLField))
+        baseURLNoteRow = addNote(baseURLNote)
         keyRow = addRow("API key:", Self.fixWidth(keyField))
         keyLinkRow = addNote(keyLink)
         modelRow = addRow("Model:", Self.fixWidth(modelField))
 
         testButton.target = self
         testButton.action = #selector(test(_:))
-        let row = NSStackView(views: [testButton, testNote])
+        testSpinner.style = .spinning
+        testSpinner.controlSize = .small
+        testSpinner.isDisplayedWhenStopped = false
+        let row = NSStackView(views: [testButton, testSpinner])
         row.spacing = 8
         addRow("", row)
+        testIcon.setContentHuggingPriority(.required, for: .horizontal)
+        let result = NSStackView(views: [testIcon, testNote])
+        result.spacing = 5
+        result.alignment = .firstBaseline
+        testRow = addNote(result)
         NotificationCenter.default.addObserver(
             self, selector: #selector(serviceDidChange(_:)), name: .serviceDidChange, object: nil
         )
@@ -283,6 +362,9 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
     /// Fills the fields for the active service and hides the ones it has no use for.
     private func showService() {
         let kind = kind
+        // A test still running belongs to the service before this one.
+        testTask?.cancel()
+        testTask = nil
         servicePopUp?.selectItem(at: ServiceKind.allCases.firstIndex(of: kind) ?? 0)
         baseURLRow?.isHidden = !kind.hasBaseURL
         keyRow?.isHidden = !kind.needsKey
@@ -296,7 +378,8 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         keyField.stringValue = Settings.apiKey(for: kind)
         modelField.stringValue = Settings.model(for: kind)
         modelField.placeholderString = kind.defaultModel
-        testNote.stringValue = ""
+        showBaseURLState()
+        showTest(nil, symbol: nil)
         let note: String =
             switch kind {
             case .openAI: "Any chat completions API: OpenAI, DeepSeek, Qwen, Ollama. Streams the translation. Keys are stored on this Mac only."
@@ -305,6 +388,24 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
             case .google: "Uses the endpoint Google's web client uses. No key, but unofficial, so it may stop working."
             }
         Self.show(note, in: serviceNote)
+    }
+
+    /// Says what the typed base URL amounts to when that isn't obvious: a
+    /// scheme added, an endpoint path dropped, or nothing usable at all.
+    private func showBaseURLState() {
+        let typed = baseURLField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = ServiceKind.normalizedBaseURL(typed, for: kind)
+        if typed.isEmpty {
+            baseURLNoteRow?.isHidden = true
+        } else if URL(string: normalized)?.host() == nil {
+            Self.show("Enter a URL such as \(kind.defaultBaseURL).", in: baseURLNote, warning: true)
+            baseURLNoteRow?.isHidden = false
+        } else if normalized != typed {
+            Self.show("Requests go to \(normalized).", in: baseURLNote)
+            baseURLNoteRow?.isHidden = false
+        } else {
+            baseURLNoteRow?.isHidden = true
+        }
     }
 
     @objc private func serviceChanged(_ sender: NSPopUpButton) {
@@ -316,6 +417,7 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         guard let field = notification.object as? NSTextField else { return }
         if field === baseURLField {
             Settings.setBaseURL(field.stringValue, for: kind)
+            showBaseURLState()
         } else if field === keyField {
             Settings.setAPIKey(field.stringValue, for: kind)
         } else if field === modelField {
@@ -328,22 +430,45 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
         testTask?.cancel()
         let kind = kind
         let service = kind.makeService()
-        Self.show("Translating…", in: testNote)
+        showTest("Translating a sentence…", symbol: nil)
         testButton.isEnabled = false
+        testSpinner.startAnimation(nil)
         testTask = Task { [weak self] in
-            defer { self?.testButton.isEnabled = true }
+            defer {
+                self?.testButton.isEnabled = true
+                self?.testSpinner.stopAnimation(nil)
+            }
             do {
                 var result = ""
-                for try await chunk in service.translate("The quick brown fox jumps over the lazy dog.", from: .english, to: Settings.firstLanguage) {
+                // Into whatever English goes to, so the result always differs.
+                for try await chunk in service.translate("The quick brown fox jumps over the lazy dog.", from: .english, to: Settings.target(for: .english)) {
                     result += chunk
                 }
                 guard !Task.isCancelled, let self else { return }
-                Self.show(result.trimmingCharacters(in: .whitespacesAndNewlines), in: testNote)
+                let text = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                if text.isEmpty {
+                    showTest("\(kind.displayName) sent back an empty translation.", symbol: "xmark.octagon.fill", tint: .systemRed)
+                } else {
+                    showTest(text, symbol: "checkmark.circle.fill", tint: .systemGreen)
+                }
             } catch {
                 guard !Task.isCancelled, let self else { return }
-                Self.show(error.localizedDescription, in: testNote, warning: true)
+                showTest(error.localizedDescription, symbol: "xmark.octagon.fill", tint: .systemRed)
             }
         }
+    }
+
+    private func showTest(_ text: String?, symbol: String?, tint: NSColor = .secondaryLabelColor) {
+        testNote.stringValue = text ?? ""
+        testNote.toolTip = text
+        testNote.textColor = symbol == nil ? .secondaryLabelColor : .labelColor
+        testIcon.isHidden = symbol == nil
+        if let symbol {
+            testIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            testIcon.contentTintColor = tint
+        }
+        testRow?.isHidden = text == nil
     }
 }
 
@@ -351,6 +476,7 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
 
 final class ShortcutsSettingsPane: SettingsPane {
     private var recorders: [HotKeyAction: ShortcutRecorder] = [:]
+    private var resets: [HotKeyAction: NSButton] = [:]
     private var notes: [HotKeyAction: NSTextField] = [:]
     private var noteRows: [HotKeyAction: NSGridRow] = [:]
 
@@ -367,6 +493,7 @@ final class ShortcutsSettingsPane: SettingsPane {
             reset.bezelStyle = .accessoryBarAction
             reset.controlSize = .small
             reset.identifier = NSUserInterfaceItemIdentifier(action.rawValue)
+            reset.toolTip = "Back to \(action.defaultShortcut.displayString)"
             let row = NSStackView(views: [recorder, reset])
             row.spacing = 8
             addRow(action.displayName.replacingOccurrences(of: "…", with: "") + ":", row)
@@ -374,9 +501,10 @@ final class ShortcutsSettingsPane: SettingsPane {
             notes[action] = note
             noteRows[action] = addNote(note)
             recorders[action] = recorder
+            resets[action] = reset
             showState(for: action)
         }
-        addNote(Self.note("Click a shortcut, then press the keys. Delete clears it. Shortcuts work in every app."))
+        addNote(Self.note("Click a shortcut, then press the keys. Delete clears it."))
     }
 
     private func record(_ shortcut: Shortcut?, for action: HotKeyAction) {
@@ -404,13 +532,15 @@ final class ShortcutsSettingsPane: SettingsPane {
     }
 
     /// Registration happens when the setting changes, so by now it's known
-    /// whether another app holds the combination.
+    /// whether another app holds the combination. Reset only has work to
+    /// do when the shortcut differs from the default.
     private func showState(for action: HotKeyAction) {
         guard let note = notes[action] else { return }
         let id = UInt32((HotKeyAction.allCases.firstIndex(of: action) ?? 0) + 1)
         let taken = Settings.shortcut(for: action) != nil && !HotKeyCenter.shared.isRegistered(id: id)
         Self.show(taken ? "Another app holds this shortcut, so it won't work." : "", in: note, warning: true)
         noteRows[action]?.isHidden = !taken
+        resets[action]?.isEnabled = Settings.shortcutIsCustom(for: action)
     }
 }
 
@@ -433,15 +563,16 @@ final class AboutSettingsPane: SettingsPane {
         let version = NSTextField(labelWithString: "Version \(Self.version)")
         version.font = .systemFont(ofSize: 12)
         version.textColor = .secondaryLabelColor
+        // Copyable, for bug reports.
+        version.isSelectable = true
 
         let blurb = NSTextField(wrappingLabelWithString:
-            "A small translation app for the menu bar: three hotkeys and one floating panel. "
-            + "Native AppKit, so the panel is on screen before you've let go of the keys. "
+            "A translation panel for the menu bar: three hotkeys, one floating card, native AppKit. "
             + "Trot keeps no history and sends text only to the service you chose.")
         blurb.font = .systemFont(ofSize: 12)
         blurb.textColor = .secondaryLabelColor
         blurb.alignment = .center
-        blurb.preferredMaxLayoutWidth = 380
+        blurb.preferredMaxLayoutWidth = 360
 
         let links = NSStackView(views: [
             Self.link("Website", to: AppInfo.homepage),

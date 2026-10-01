@@ -4,6 +4,17 @@ import Testing
 
 @Suite("Two-language rule", .serialized)
 struct SettingsTests {
+    @Test func pickingTheOtherLanguageSwapsThem() {
+        // The first pop-up set to what the second was: the second takes the old first.
+        let swapped = Settings.resolved(first: .english, second: .english, before: (.chineseSimplified, .english))
+        #expect(swapped == (.english, .chineseSimplified))
+        // The second pop-up set to what the first was: the first takes the old second.
+        let other = Settings.resolved(first: .chineseSimplified, second: .chineseSimplified, before: (.chineseSimplified, .english))
+        #expect(other == (.english, .chineseSimplified))
+        // Different languages pass through.
+        #expect(Settings.resolved(first: .japanese, second: .english, before: (.chineseSimplified, .english)) == (.japanese, .english))
+    }
+
     @Test func otherLanguagesGoToTheFirstAndTheFirstGoesToTheSecond() {
         let defaults = UserDefaults.standard
         let saved = (defaults.string(forKey: "firstLanguage"), defaults.string(forKey: "secondLanguage"))

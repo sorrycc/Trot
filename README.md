@@ -12,13 +12,14 @@ A small macOS translation app in the spirit of [Bob](https://github.com/ripperhe
 
 ## Features
 
-- **Translate the selection.** Press ⌥D with text selected in any app. The translation streams into a glass panel at the mouse.
+- **Translate the selection.** Press ⌥D with text selected in any app. The translation streams into a glass panel at the mouse, which grows with the text.
 - **Translate what you type.** ⌥A opens the same panel with an editable field. Return translates, Shift+Return adds a line.
 - **Translate a screenshot.** ⌥S draws the system crosshair over a region, reads the text with Vision, and translates it.
-- **Two-language rule.** Text in any language goes into your first language; text already in it goes into your second. Pick another target from the chip in the panel.
-- **Services.** Any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL, or Google's unofficial endpoint. Switch in the panel or in Settings.
-- **Hotkeys you can change**, launch at login, a speaker button that reads the translation aloud, and a copy button that copies the whole translation.
-- **Fails politely.** A missing key or a wrong base URL comes with an Open Settings button; a network error with Retry. The menu bar icon switches services without opening Settings.
+- **Two-language rule.** Text in any language goes into your first language; text already in it goes into your second. Pick another target from the chip in the panel, or with ⌘L.
+- **Services.** Any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL, or Google's unofficial endpoint. Switch in the panel (⌘1 to ⌘4), from the menu bar icon, or in Settings.
+- **Hotkeys you can change**, launch at login, a speaker button that reads the translation aloud, and a copy button that copies the whole translation. ⌘P pins the panel.
+- **Fails politely.** An error takes the place of the translation and says what to do: a missing key or a wrong base URL comes with an Open Settings button, a network error with Retry, and Return presses it.
+- **Quick.** The panel is built at launch, long selections are laid out only as far as shown, and the connection to the service opens while the selection is read.
 
 ## Requirements
 

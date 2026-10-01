@@ -28,6 +28,11 @@ enum SelectionReader {
     /// pasteboard type, so such a copy can be undone and ignored.
     private static let vscodeEditorData = NSPasteboard.PasteboardType("vscode-editor-data")
 
+    /// Each app's Edit > Copy item, found once. Asking it alone whether it
+    /// is enabled is one call where walking the menus is dozens.
+    private nonisolated(unsafe) static var copyItems: [pid_t: AXUIElement] = [:]
+    private static let copyItemsLock = NSLock()
+
     /// Only one read at a time: a second Cmd+C while the first is in flight
     /// would snapshot the first copy as the clipboard to restore.
     @MainActor private static var inFlight: Task<String?, Never>?
@@ -75,10 +80,12 @@ enum SelectionReader {
                 return nil
             }
         }
-        if pid != 0, await Task.detached(priority: .userInitiated, operation: { copyMenuItemEnabled(pid: pid) }).value == false {
-            return nil
-        }
-        return await readThroughPasteboard(pid: pid)
+        // The menu check and the pasteboard snapshot are both slow calls
+        // into other processes, so they run side by side.
+        async let copyEnabled = Task.detached(priority: .userInitiated) { pid == 0 ? nil : copyMenuItemEnabled(pid: pid) }.value
+        async let saved = Task.detached(priority: .userInitiated) { snapshot(NSPasteboard.general) }.value
+        if await copyEnabled == false { return nil }
+        return await readThroughPasteboard(pid: pid, saved: await saved)
     }
 
     private nonisolated static func readThroughAccessibility() -> AXAnswer {
@@ -107,11 +114,23 @@ enum SelectionReader {
     /// equivalent so menu titles in any language work. Nil when the menu
     /// can't be read.
     private nonisolated static func copyMenuItemEnabled(pid: pid_t) -> Bool? {
+        if let item = copyItemsLock.withLock({ copyItems[pid] }), let enabled = attribute(item, kAXEnabledAttribute) as? Bool {
+            return enabled
+        }
+        guard let item = findCopyItem(pid: pid) else { return nil }
+        copyItemsLock.withLock { copyItems[pid] = item }
+        return (attribute(item, kAXEnabledAttribute) as? Bool) ?? true
+    }
+
+    private nonisolated static func findCopyItem(pid: pid_t) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.3)
         guard let menuBar = element(attribute(app, kAXMenuBarAttribute)), let menus = children(menuBar) else { return nil }
-        // The first menu is the application menu, which never has Copy.
-        for menu in menus.dropFirst() {
+        // Edit is nearly always the third menu, after the app menu and
+        // File, so it goes first; the rest only when it isn't there.
+        var order = Array(menus.dropFirst())
+        if order.count > 1 { order.swapAt(0, 1) }
+        for menu in order {
             guard let submenus = children(menu) else { continue }
             for submenu in submenus {
                 guard let items = children(submenu) else { continue }
@@ -119,7 +138,7 @@ enum SelectionReader {
                     guard let key = attribute(item, kAXMenuItemCmdCharAttribute) as? String, key.uppercased() == "C",
                         (attribute(item, kAXMenuItemCmdModifiersAttribute) as? Int ?? 0) == 0
                     else { continue }
-                    return (attribute(item, kAXEnabledAttribute) as? Bool) ?? true
+                    return item
                 }
             }
         }
@@ -144,12 +163,10 @@ enum SelectionReader {
 
     // MARK: Pasteboard
 
+    /// `saved` is the pasteboard as it was, to put back after the copy.
     @MainActor
-    private static func readThroughPasteboard(pid: pid_t) async -> String? {
+    private static func readThroughPasteboard(pid: pid_t, saved: Snapshot?) async -> String? {
         let pasteboard = NSPasteboard.general
-        // Reading lazy types makes their app render them, which can take a
-        // while for images, so this runs off the main thread with a budget.
-        let saved = await Task.detached(priority: .userInitiated) { snapshot(NSPasteboard.general) }.value
         let before = pasteboard.changeCount
         postCopy()
         // Apps take a few ms to put the copy on the pasteboard, slow ones a few hundred.
@@ -216,6 +233,8 @@ enum SelectionReader {
     private typealias Snapshot = [[NSPasteboard.PasteboardType: Data]]
 
     /// The pasteboard's items as data, skipping promised and dynamic types.
+    /// Reading lazy types makes their app render them, which can take a
+    /// while for images, so this runs off the main thread with a budget.
     /// Nil when the contents are too large or slow to copy, which means
     /// the clipboard won't be restored.
     private nonisolated static func snapshot(_ pasteboard: NSPasteboard) -> Snapshot? {

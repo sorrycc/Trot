@@ -71,6 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func translateInput(_ sender: Any?) { translator.showInput() }
     @objc func translateScreenshot(_ sender: Any?) { translator.translateScreenshot() }
 
+    @objc func showAbout(_ sender: Any?) {
+        showSettings(sender)
+        settingsController?.showPane(titled: "About")
+    }
+
     @objc func showSettings(_ sender: Any?) {
         let controller = settingsController ?? SettingsWindowController()
         settingsController = controller

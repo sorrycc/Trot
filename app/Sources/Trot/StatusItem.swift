@@ -49,6 +49,8 @@ final class StatusItem: NSObject {
         let serviceItem = menu.addItem(withTitle: "Service: \(Settings.service.shortName)", action: nil, keyEquivalent: "")
         serviceItem.submenu = services
         menu.addItem(.separator())
+        let about = menu.addItem(withTitle: "About Trot", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+        about.target = target
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         settings.target = target
         menu.addItem(.separator())

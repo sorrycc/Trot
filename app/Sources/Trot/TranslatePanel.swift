@@ -760,8 +760,10 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         if resultHeight.constant < resultCap || !isStreaming {
             resultHeight.constant = min(max(textHeight(resultView, cap: resultCap), 20), resultCap)
         }
+        // A result that arrived before an error, as a cut-off one did, stays
+        // in view with the notice under it.
         let hasResult = isStreaming || !resultText.isEmpty
-        let showResult = !isReading && !showsError && (hasResult || mode == .result)
+        let showResult = !isReading && (hasResult || (mode == .result && !showsError))
         sourceScroll.isHidden = isReading
         separator.isHidden = !(showResult || (!notice.isHidden && !isReading))
         resultScroll.isHidden = !showResult

@@ -19,6 +19,22 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: "secondLanguage") }
     }
 
+    /// Sets both languages. Picking one that the other already is swaps
+    /// them, so the rule always has two places to go.
+    static func setLanguages(first: Language, second: Language) {
+        let (first, second) = resolved(first: first, second: second, before: (firstLanguage, secondLanguage))
+        firstLanguage = first
+        secondLanguage = second
+    }
+
+    /// `first` and `second` as `setLanguages` stores them: when the new
+    /// pair is one language twice, the one that moved takes its place and
+    /// the other steps over to where it was.
+    static func resolved(first: Language, second: Language, before: (Language, Language)) -> (Language, Language) {
+        guard first == second else { return (first, second) }
+        return first == before.0 ? (before.1, second) : (first, before.0)
+    }
+
     /// The Chinese the user reads, for text that could be either script.
     static var preferredChinese: Language {
         for language in [firstLanguage, secondLanguage] where language.sameFamily(as: .chineseSimplified) {
@@ -93,17 +109,24 @@ enum Settings {
         NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
     }
 
+    /// Whether the user changed or cleared the shortcut, so Reset has work to do.
+    static func shortcutIsCustom(for action: HotKeyAction) -> Bool {
+        defaults.object(forKey: action.defaultsKey) != nil
+    }
+
     // MARK: Launch at login
 
     static var launchesAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
-        set {
-            do {
-                if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-            } catch {
-                NSLog("Trot: launch at login: %@", error.localizedDescription)
-            }
-        }
+        SMAppService.mainApp.status == .enabled
+    }
+
+    /// macOS registered the item but waits for the user to approve it.
+    static var loginItemNeedsApproval: Bool {
+        SMAppService.mainApp.status == .requiresApproval
+    }
+
+    static func setLaunchesAtLogin(_ on: Bool) throws {
+        if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
     }
 }
 
@@ -138,7 +161,7 @@ enum AppInfo {
     static let homepage = "https://github.com/sorrycc/trot"
     static let issues = "https://github.com/sorrycc/trot/issues"
     static let license = "https://github.com/sorrycc/trot/blob/main/LICENSE"
-    static let copyright = "© 2026 chencheng · MIT License"
+    static let copyright = "© 2026 chencheng"
 }
 
 extension Notification.Name {
