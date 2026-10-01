@@ -407,11 +407,17 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         updateLayout()
     }
 
-    /// The stream was stopped before it ended, by a newer action.
+    /// The stream was stopped before it ended, by a newer action. What
+    /// arrived stays; a panel still waiting for its text has nothing to
+    /// keep and goes away.
     func cancelStreaming() {
-        guard isStreaming || isReading else { return }
+        if isReading {
+            isReading = false
+            dismiss(notifying: false)
+            return
+        }
+        guard isStreaming else { return }
         flushChunks()
-        isReading = false
         endStreaming()
         showStatus("Stopped")
         updateLayout()
@@ -651,11 +657,17 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     @objc private func closePanel(_ sender: Any?) {
+        dismiss(notifying: true)
+    }
+
+    /// Fades the panel out. `notifying` tells the owner, which stops the
+    /// translation; a close the owner asked for skips that.
+    private func dismiss(notifying: Bool) {
         speaker?.stop()
         stopBlinking()
         removeClickMonitor()
         isPinned = false
-        onClose?()
+        if notifying { onClose?() }
         let run = presentation
         animateScale(from: 1, to: 0.98, duration: 0.12, key: "exit")
         NSAnimationContext.runAnimationGroup({ context in

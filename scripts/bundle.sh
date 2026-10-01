@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${TROT_OUT:-$ROOT/build}"
 APP="$OUT/Trot.app"
 BUNDLE_ID="${TROT_BUNDLE_ID:-dev.sorrycc.trot}"
-VERSION="${TROT_VERSION:-0.2.0}"
+VERSION="${TROT_VERSION:-0.3.0}"
 
 echo "==> swift build ($CONFIG)"
 swift build --package-path "$ROOT/app" -c "$CONFIG" -Xlinker -dead_strip

@@ -84,7 +84,6 @@ final class TranslateController {
             return
         }
         let run = stop()
-        panel.cancelStreaming()
         Task {
             // A slow read, as the pasteboard path in browsers can be, shows
             // the panel waiting. It takes no keys, so ⌘C still reaches the app.
