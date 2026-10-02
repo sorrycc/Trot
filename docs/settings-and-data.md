@@ -43,7 +43,7 @@ The connection to the service opens when a hotkey is pressed, so its setup overl
 
 ## Data
 
-Settings, API keys included, live in the app's user defaults, `dev.sorrycc.trot`. The keychain is not used: an ad-hoc signed app has a new identity after every build, and the keychain would ask for permission each time. Trot keeps no history and sends text only to the service you chose.
+Settings, API keys included, live in the app's user defaults, `dev.sorrycc.trot.app`. Versions before 0.3.1 used `dev.sorrycc.trot`, whose menu bar icon macOS 26 can keep hidden; the first launch under the new id copies the old settings over. Accessibility access and launch at login are tied to the id, so they need to be turned on again once. The keychain is not used: an ad-hoc signed app has a new identity after every build, and the keychain would ask for permission each time. Trot keeps no history and sends text only to the service you chose.
 
 ## Launch arguments
 

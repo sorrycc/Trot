@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastHotKey: ContinuousClock.Instant?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Settings.migrateLegacyDefaults()
         // `-appearance light` or `dark` forces one, for checking both from a script.
         if let name = UserDefaults.standard.string(forKey: "appearance") {
             NSApp.appearance = NSAppearance(named: name == "light" ? .aqua : .darkAqua)

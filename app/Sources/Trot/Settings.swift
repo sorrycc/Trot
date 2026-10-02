@@ -7,6 +7,21 @@ import ServiceManagement
 enum Settings {
     static var defaults: UserDefaults { .standard }
 
+    /// The id the app had before 0.3.1. Its menu bar item stayed hidden
+    /// on macOS 26, so the app moved to a new id.
+    static let legacyDomain = "dev.sorrycc.trot"
+
+    /// Copies the settings saved under the old id, once: only while the
+    /// current id has none of its own. The old domain stays, so an older
+    /// build still finds its settings.
+    static func migrateLegacyDefaults() {
+        guard let current = Bundle.main.bundleIdentifier, current != legacyDomain,
+              defaults.persistentDomain(forName: current)?.isEmpty ?? true,
+              let old = defaults.persistentDomain(forName: legacyDomain), !old.isEmpty
+        else { return }
+        defaults.setPersistentDomain(old, forName: current)
+    }
+
     /// The language most text gets translated into.
     static var firstLanguage: Language {
         get { defaults.string(forKey: "firstLanguage").flatMap(Language.init) ?? .chineseSimplified }
