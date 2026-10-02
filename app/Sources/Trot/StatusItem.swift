@@ -10,9 +10,7 @@ final class StatusItem: NSObject {
     init(target: AppDelegate) {
         self.target = target
         super.init()
-        let symbol = NSImage(systemSymbolName: "translate", accessibilityDescription: "Trot")
-            ?? NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "Trot")
-        item.button?.image = symbol?.withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
+        item.button?.image = Self.icon()
         item.button?.toolTip = "Trot"
         rebuild()
         for name in [Notification.Name.shortcutsDidChange, .serviceDidChange] {
@@ -20,6 +18,19 @@ final class StatusItem: NSObject {
                 MainActor.assumeIsolated { self?.rebuild() }
             }
         }
+    }
+
+    /// The hoof print from the bundle's resources, drawn as a template so
+    /// it follows the menu bar's color. A bare binary has no bundle, so it
+    /// falls back to a symbol.
+    private static func icon() -> NSImage? {
+        if let image = NSImage(named: "MenuBarIcon") {
+            image.isTemplate = true
+            image.accessibilityDescription = "Trot"
+            return image
+        }
+        return NSImage(systemSymbolName: "translate", accessibilityDescription: "Trot")?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
     }
 
     private func rebuild() {

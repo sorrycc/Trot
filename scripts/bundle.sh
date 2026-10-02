@@ -27,6 +27,8 @@ if [ -f "$ROOT/app/Resources/Trot.icns" ]; then
     icon="<key>CFBundleIconFile</key><string>Trot</string>"
 fi
 
+cp "$ROOT/app/Resources/MenuBarIcon.png" "$ROOT/app/Resources/MenuBarIcon@2x.png" "$APP/Contents/Resources/"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
