@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 
 /// The floating glass card with the source text, the translation and a row
 /// of controls. One instance lives for the whole run and is shown at the
@@ -21,7 +20,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// `-preview YES` shows the panel without taking the keyboard, for
     /// looking at it from a script while working elsewhere.
     private static let previewOnly = UserDefaults.standard.bool(forKey: "preview")
-    private static let inset: CGFloat = 14
+    private static let inset: CGFloat = 16
+    private static let cornerRadius: CGFloat = 18
     private static var textWidth: CGFloat { width - inset * 2 }
     /// How far the panel sits from the mouse.
     private static let mouseGap: CGFloat = 12
@@ -46,11 +46,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     private let resultScroll = NSScrollView()
     private var resultHeight: NSLayoutConstraint!
     /// An error or a hint, with an optional button, in place of the result.
-    private let notice = NSStackView()
-    private let noticeIcon = NSImageView()
-    private let noticeLabel = NSTextField(wrappingLabelWithString: "")
-    private let actionButton = NSButton()
-    private var action: (() -> Void)?
+    private let notice = NoticeView(width: textWidth)
     private let footer = NSStackView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let speakButton = NSButton()
@@ -60,11 +56,11 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// Counts presentations, so a fade-out that ends after the panel was
     /// shown again leaves it on screen.
     private var presentation = 0
-    private var blinkTimer: Timer?
-    private var cursorVisible = true
-    /// When the last chunk landed. The cursor stays solid while text is
-    /// arriving and blinks only once the stream goes quiet.
-    private var lastChunk = ContinuousClock.now
+    /// Marks where the next words will land while a translation streams.
+    private let caret = StreamCaret()
+    /// Fires when the stream has gone quiet for a moment. The caret stays
+    /// solid while text is arriving and pulses only then.
+    private var quietTimer: Timer?
     /// How much smaller the card is as it fades in and out.
     private static let entranceScale: CGFloat = 0.97
     /// Made on the first use: the synthesizer loads voices, which the
@@ -81,7 +77,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// input mode so the two-language rule doesn't take it back.
     private(set) var pickedTarget: Language?
 
-    /// The translation so far, without the streaming cursor.
+    /// The translation so far.
     private(set) var resultText = ""
     private(set) var isStreaming = false
     /// Chunks waiting for the next flush. Services send many small pieces;
@@ -110,19 +106,26 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         return [.font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.labelColor, .paragraphStyle: style]
     }()
 
-    private static let resultAttributes: [NSAttributedString.Key: Any] = {
+    private static let resultAttributes = resultAttributes(rightToLeft: false)
+    private static let rightToLeftResultAttributes = resultAttributes(rightToLeft: true)
+
+    /// Left to its own devices a paragraph starts on the side the system
+    /// language does, so Arabic is told to start on the right.
+    private static func resultAttributes(rightToLeft: Bool) -> [NSAttributedString.Key: Any] {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = 3
+        if rightToLeft {
+            style.baseWritingDirection = .rightToLeft
+            style.alignment = .right
+        }
         return [.font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.labelColor, .paragraphStyle: style]
-    }()
+    }
 
-    private static let cursorAttributes: [NSAttributedString.Key: Any] = {
-        var attributes = resultAttributes
-        attributes[.foregroundColor] = NSColor.controlAccentColor
-        return attributes
-    }()
+    /// The attributes for the language the result is in.
+    private var resultAttributes: [NSAttributedString.Key: Any] {
+        target.isRightToLeft ? Self.rightToLeftResultAttributes : Self.resultAttributes
+    }
 
-    private static let cursor = "▍"
     private static let chipFont = NSFont.systemFont(ofSize: 12, weight: .medium)
 
     init() {
@@ -197,6 +200,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         resultView.onEscape = { [weak self] in self?.closePanel(nil) }
         resultView.isEditable = false
         resultView.onCopyAll = { [weak self] in self?.copyResult(nil) }
+        // In the text view, so it scrolls with the text it follows.
+        resultView.addSubview(caret)
         configure(sourceScroll, with: sourceView)
         configure(resultScroll, with: resultView)
         sourceHeight = sourceScroll.heightAnchor.constraint(equalToConstant: 20)
@@ -210,27 +215,6 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
 
         separator.boxType = .separator
 
-        // The notice: an icon, a message that wraps, and a button under it.
-        noticeIcon.setContentHuggingPriority(.required, for: .horizontal)
-        noticeLabel.font = .systemFont(ofSize: 13)
-        noticeLabel.textColor = .labelColor
-        noticeLabel.preferredMaxLayoutWidth = Self.textWidth - 22
-        noticeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let noticeRow = NSStackView(views: [noticeIcon, noticeLabel])
-        noticeRow.alignment = .firstBaseline
-        noticeRow.spacing = 6
-        actionButton.bezelStyle = .accessoryBarAction
-        actionButton.controlSize = .small
-        actionButton.font = .systemFont(ofSize: 11, weight: .medium)
-        actionButton.target = self
-        actionButton.action = #selector(runAction(_:))
-        actionButton.setContentHuggingPriority(.required, for: .horizontal)
-        actionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-        notice.orientation = .vertical
-        notice.alignment = .leading
-        notice.spacing = 8
-        notice.addArrangedSubview(noticeRow)
-        notice.addArrangedSubview(actionButton)
         notice.isHidden = true
 
         // Footer: status, speak and copy.
@@ -267,11 +251,24 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         // for a few frames, which a required bottom constraint would fight.
         let bottom = column.bottomAnchor.constraint(equalTo: host.bottomAnchor)
         bottom.priority = .defaultLow
-        glass.cornerRadius = 18
+        glass.cornerRadius = Self.cornerRadius
+        // Glass takes its brightness from what is behind it: a dark
+        // card over a white page turns grey and the text fades. The tint
+        // keeps the card its own colour and leaves a trace of the backdrop.
+        glass.tintColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(white: 0.12, alpha: 0.6) : NSColor(white: 1, alpha: 0.6)
+        }
         glass.contentView = host
         glass.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
         root.wantsLayer = true
+        // The window's shadow and rim are cut from what the root layer
+        // draws. Unmasked, that is the whole rectangle, and its square
+        // corners show around the rounded card.
+        root.layer?.cornerRadius = Self.cornerRadius
+        root.layer?.cornerCurve = .continuous
+        root.layer?.masksToBounds = true
         root.addSubview(glass)
         NSLayoutConstraint.activate([
             glass.topAnchor.constraint(equalTo: root.topAnchor),
@@ -283,7 +280,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
             column.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             bottom,
             column.widthAnchor.constraint(equalToConstant: Self.width),
-            placeholder.leadingAnchor.constraint(equalTo: sourceScroll.leadingAnchor),
+            // Clear of the insertion point, which blinks at the very edge.
+            placeholder.leadingAnchor.constraint(equalTo: sourceScroll.leadingAnchor, constant: 2),
             placeholder.trailingAnchor.constraint(lessThanOrEqualTo: sourceScroll.trailingAnchor),
             placeholder.topAnchor.constraint(equalTo: sourceScroll.topAnchor, constant: 1),
         ])
@@ -382,7 +380,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         showLanguages()
         showStatus("↩ Translate   ⇧↩ New line")
         if let hint {
-            showNotice(hint, symbol: "info.circle.fill", tint: .systemOrange, action: action)
+            showNotice(hint, style: .hint, action: action)
         } else {
             hideNotice()
         }
@@ -408,7 +406,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         isReading = false
         endStreaming()
         showStatus("")
-        showNotice(message, symbol: "exclamationmark.triangle.fill", tint: .systemRed, action: action)
+        showNotice(message, style: .error, action: action)
         announce(message)
         updateLayout()
     }
@@ -437,16 +435,10 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         updateLayout()
     }
 
-    private func showNotice(_ message: String, symbol: String, tint: NSColor, action: (String, () -> Void)?) {
-        noticeIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
-        noticeIcon.contentTintColor = tint
-        noticeLabel.stringValue = message
-        noticeLabel.toolTip = message
-        self.action = action?.1
-        actionButton.title = action?.0 ?? ""
-        actionButton.isHidden = action == nil
-        actionButton.keyEquivalent = mode == .result && action != nil ? "\r" : ""
+    /// In result mode Return presses the notice's button; in input mode
+    /// Return belongs to the field.
+    private func showNotice(_ message: String, style: NoticeView.Style, action: (String, () -> Void)?) {
+        notice.show(message, style: style, action: action, returnPresses: mode == .result)
         notice.isHidden = false
         updateLayout()
     }
@@ -454,13 +446,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     private func hideNotice() {
         guard !notice.isHidden else { return }
         notice.isHidden = true
-        action = nil
-        actionButton.keyEquivalent = ""
+        notice.clear()
         updateLayout()
-    }
-
-    @objc private func runAction(_ sender: Any?) {
-        action?()
     }
 
     /// The text selected in either text view, for the selection hotkey
@@ -507,98 +494,81 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         isReading = false
         clearResult()
         isStreaming = true
-        lastChunk = .now
         selectService(service)
         showStatus("Translating…")
-        renderResult()
-        startBlinking()
+        // Pulsing from the start: nothing has arrived yet.
+        placeCaret()
+        caret.isHidden = false
+        caret.isPulsing = true
     }
 
-    /// The cursor blinks like an insertion point once the stream goes
-    /// quiet, which says it is still alive. Only its colour changes, so no
-    /// layout runs for the blink.
-    private func startBlinking() {
-        stopBlinking()
-        cursorVisible = true
-        blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.blink() }
+    /// The caret pulses like an insertion point once the stream goes
+    /// quiet, which says it is still alive. The pulse is a layer
+    /// animation, so no layout or drawing runs for it.
+    private func holdCaret() {
+        caret.isPulsing = false
+        quietTimer?.invalidate()
+        quietTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isStreaming else { return }
+                self.caret.isPulsing = true
+            }
         }
-        blinkTimer?.tolerance = 0.1
     }
 
-    private func stopBlinking() {
-        blinkTimer?.invalidate()
-        blinkTimer = nil
-        cursorVisible = true
+    private func hideCaret() {
+        quietTimer?.invalidate()
+        quietTimer = nil
+        caret.isPulsing = false
+        caret.isHidden = true
     }
 
-    private func blink() {
-        guard isStreaming, let storage = resultView.textStorage else { return }
-        let length = (Self.cursor as NSString).length
-        guard storage.length >= length else { return }
-        let arriving = lastChunk.duration(to: .now) < .milliseconds(500)
-        let visible = arriving ? true : !cursorVisible
-        guard visible != cursorVisible else { return }
-        cursorVisible = visible
-        let color: NSColor = visible ? .controlAccentColor : .clear
-        storage.addAttribute(.foregroundColor, value: color, range: NSRange(location: storage.length - length, length: length))
+    private func placeCaret() {
+        guard let layoutManager = resultView.layoutManager, let font = resultAttributes[.font] as? NSFont else { return }
+        if let frame = StreamCaret.frame(afterTextIn: layoutManager, font: font, rightToLeft: target.isRightToLeft) {
+            caret.frame = frame
+        }
     }
 
     private func clearResult() {
         speaker?.stop()
-        stopBlinking()
+        hideCaret()
         resultText = ""
         pendingChunks = ""
         isStreaming = false
-        renderResult()
+        setText("", in: resultView, attributes: resultAttributes)
         // A box left at its cap by a long result would stay there for the
         // next stream, which skips measuring once the box is full.
         resultHeight.constant = 20
     }
 
-    /// Ends the stream and drops the cursor in place, so a long result is
-    /// not laid out again from the start.
+    /// Ends the stream. The caret is a view over the text, so taking it
+    /// away leaves the text and its layout as they are.
     private func endStreaming() {
-        let wasStreaming = isStreaming
         isStreaming = false
-        stopBlinking()
-        guard wasStreaming, let storage = resultView.textStorage else { return }
-        let length = (Self.cursor as NSString).length
-        guard storage.length >= length,
-            storage.attributedSubstring(from: NSRange(location: storage.length - length, length: length)).string == Self.cursor
-        else { return }
-        storage.beginEditing()
-        storage.deleteCharacters(in: NSRange(location: storage.length - length, length: length))
-        storage.endEditing()
+        hideCaret()
     }
 
-    /// Appends the pending chunks before the cursor, in place, so layout
-    /// only runs for the new text. Follows the end when it was in view.
+    /// Appends the pending chunks in place, so layout only runs for the
+    /// new text. Follows the end when it was in view.
     private func flushChunks() {
         flushScheduled = false
         guard !pendingChunks.isEmpty, let storage = resultView.textStorage else { return }
         let clip = resultScroll.contentView
         let wasAtEnd = clip.bounds.maxY >= resultView.frame.maxY - 4
-        let cursorLength = isStreaming ? (Self.cursor as NSString).length : 0
         storage.beginEditing()
-        storage.insert(NSAttributedString(string: pendingChunks, attributes: Self.resultAttributes), at: max(storage.length - cursorLength, 0))
+        storage.append(NSAttributedString(string: pendingChunks, attributes: resultAttributes))
         storage.endEditing()
         resultText += pendingChunks
         pendingChunks = ""
-        lastChunk = .now
-        if isStreaming, !cursorVisible { blink() }
         updateLayout()
+        if isStreaming {
+            placeCaret()
+            holdCaret()
+        }
         if wasAtEnd, resultView.frame.height > clip.bounds.height {
             resultView.scrollToEndOfDocument(nil)
         }
-    }
-
-    /// Draws the result with the cursor after it while streaming.
-    private func renderResult() {
-        let text = NSMutableAttributedString(string: resultText, attributes: Self.resultAttributes)
-        if isStreaming { text.append(NSAttributedString(string: Self.cursor, attributes: Self.cursorAttributes)) }
-        resultView.textStorage?.setAttributedString(text)
-        cursorVisible = true
     }
 
     private func showStatus(_ text: String) {
@@ -684,7 +654,9 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// translation; a close the owner asked for skips that.
     private func dismiss(notifying: Bool) {
         speaker?.stop()
-        stopBlinking()
+        // The owner stops the request; the panel's side of it ends here,
+        // or a panel shown again mid-fade would still count as streaming.
+        endStreaming()
         removeClickMonitor()
         isPinned = false
         if notifying { onClose?() }
@@ -705,6 +677,12 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { closePanel(nil) } else { super.keyDown(with: event) }
+    }
+
+    /// Escape arrives here when a control other than the text views has
+    /// the keyboard. A borderless panel has no close button to press.
+    override func cancelOperation(_ sender: Any?) {
+        closePanel(nil)
     }
 
     /// ⌘W closes, like a window. ⌘P pins, ⌘L opens the language menu and
@@ -813,7 +791,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// Everything that moves the card's height, for telling when it did.
     private var layoutState: [CGFloat] {
         [sourceHeight.constant, resultHeight.constant]
-            + [resultScroll, footer, copyButton, speakButton, notice, actionButton, sourceScroll, separator].map { $0.isHidden ? 1 : 0 }
+            + [resultScroll, footer, copyButton, speakButton, notice, sourceScroll, separator].map { $0.isHidden ? 1 : 0 }
+            + [notice.revision]
     }
 
     /// The height of the text, measured only as far as `cap`: a long
@@ -966,7 +945,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// Clicks in other apps close the panel unless it's pinned. Clicks in
     /// Trot's own windows never reach a global monitor.
     private func installClickMonitor() {
-        guard clickMonitor == nil else { return }
+        // A preview is looked at from a script while the mouse works elsewhere.
+        guard clickMonitor == nil, !Self.previewOnly else { return }
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, !self.isPinned, self.mode != .input else { return }
@@ -1006,155 +986,5 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         default:
             return false
         }
-    }
-}
-
-/// A rounded, faintly filled background for a chip in the header, sized to
-/// its content, a little stronger under the mouse and while its menu is up.
-private final class Pill: NSView {
-    var isPressed = false { didSet { needsDisplay = true } }
-    private var isHovered = false { didSet { needsDisplay = true } }
-
-    init(_ content: NSView) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 6
-        layer?.cornerCurve = .continuous
-        addSubview(content)
-        content.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 22),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
-            content.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-        setContentHuggingPriority(.required, for: .horizontal)
-        setContentCompressionResistancePriority(.required, for: .horizontal)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-    override var wantsUpdateLayer: Bool { true }
-
-    /// Runs with the current appearance, so the fill follows light and dark.
-    override func updateLayer() {
-        let alpha: CGFloat = isPressed ? 0.16 : isHovered ? 0.12 : 0.07
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.allowsImplicitAnimation = true
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(alpha).cgColor
-        }
-    }
-}
-
-/// A text view that closes the panel on Escape and copies all of its text
-/// with Cmd+C when nothing is selected.
-final class PanelTextView: NSTextView {
-    var onEscape: (() -> Void)?
-    /// What Cmd+C does when nothing is selected. Defaults to copying the text.
-    var onCopyAll: (() -> Void)?
-
-    /// A TextKit 1 stack, whose layout manager reports the text height.
-    /// `nonContiguous` lets a long text be laid out only as far as shown.
-    static func make(width: CGFloat, attributes: [NSAttributedString.Key: Any], nonContiguous: Bool) -> PanelTextView {
-        let storage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
-        layoutManager.allowsNonContiguousLayout = nonContiguous
-        storage.addLayoutManager(layoutManager)
-        // The column is a fixed width, so the container is too: measuring
-        // then never depends on whether the views have been laid out.
-        let container = NSTextContainer(size: NSSize(width: width, height: CGFloat.greatestFiniteMagnitude))
-        container.widthTracksTextView = false
-        container.lineFragmentPadding = 0
-        layoutManager.addTextContainer(container)
-        let view = PanelTextView(frame: NSRect(x: 0, y: 0, width: width, height: 20), textContainer: container)
-        view.isRichText = false
-        view.drawsBackground = false
-        view.textContainerInset = .zero
-        view.isVerticallyResizable = true
-        view.isHorizontallyResizable = false
-        view.autoresizingMask = [.width]
-        view.minSize = NSSize(width: 0, height: 0)
-        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        view.isAutomaticQuoteSubstitutionEnabled = false
-        view.isAutomaticDashSubstitutionEnabled = false
-        view.isAutomaticTextReplacementEnabled = false
-        view.isAutomaticSpellingCorrectionEnabled = false
-        view.allowsUndo = true
-        view.typingAttributes = attributes
-        view.font = attributes[.font] as? NSFont
-        view.textColor = attributes[.foregroundColor] as? NSColor
-        view.insertionPointColor = .controlAccentColor
-        return view
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        onEscape?()
-    }
-
-    override func copy(_ sender: Any?) {
-        guard selectedRange().length == 0 else { return super.copy(sender) }
-        if let onCopyAll { return onCopyAll() }
-        guard !string.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
-    }
-}
-
-/// Reads a translation aloud with the system voice for its language.
-@MainActor
-final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
-    var onChange: (() -> Void)?
-    private let synthesizer = AVSpeechSynthesizer()
-    private(set) var isSpeaking = false { didSet { onChange?() } }
-    /// The utterance playing now, so a cancel for the previous one that
-    /// arrives late doesn't mark this one as finished.
-    private var current: AVSpeechUtterance?
-    /// Every utterance whose end hasn't been reported yet, held so that
-    /// its identity can't be reused by a newer one in the meantime.
-    private var inFlight: [AVSpeechUtterance] = []
-
-    override init() {
-        super.init()
-        synthesizer.delegate = self
-    }
-
-    func speak(_ text: String, in language: Language) {
-        guard !text.isEmpty else { return }
-        synthesizer.stopSpeaking(at: .immediate)
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: language.speechLocale)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        current = utterance
-        inFlight.append(utterance)
-        synthesizer.speak(utterance)
-        isSpeaking = true
-    }
-
-    func stop() {
-        guard isSpeaking else { return }
-        current = nil
-        synthesizer.stopSpeaking(at: .immediate)
-        isSpeaking = false
-    }
-
-    private func ended(_ utterance: ObjectIdentifier) {
-        inFlight.removeAll { ObjectIdentifier($0) == utterance }
-        guard let current, ObjectIdentifier(current) == utterance else { return }
-        self.current = nil
-        isSpeaking = false
-    }
-
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        let id = ObjectIdentifier(utterance)
-        Task { @MainActor in self.ended(id) }
-    }
-
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        let id = ObjectIdentifier(utterance)
-        Task { @MainActor in self.ended(id) }
     }
 }

@@ -10,7 +10,7 @@ APP="$OUT/Trot.app"
 # Not dev.sorrycc.trot: macOS 26 keeps that id's menu bar item hidden on
 # at least one Mac, and nothing short of a new id brings it back.
 BUNDLE_ID="${TROT_BUNDLE_ID:-dev.sorrycc.trot.app}"
-VERSION="${TROT_VERSION:-0.3.1}"
+VERSION="${TROT_VERSION:-0.4.0}"
 
 echo "==> swift build ($CONFIG)"
 swift build --package-path "$ROOT/app" -c "$CONFIG" -Xlinker -dead_strip

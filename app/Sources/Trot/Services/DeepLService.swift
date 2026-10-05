@@ -9,13 +9,12 @@ struct DeepLService: TranslationService {
         let config = config
         return HTTP.stream { continuation in
             guard !config.apiKey.isEmpty else { throw TranslationError.missingKey(.deepL) }
-            let host = config.apiKey.hasSuffix(":fx") ? "api-free.deepl.com" : "api.deepl.com"
             var body: [String: Any] = ["text": [text], "target_lang": Self.targetCode(target)]
             // The service detects Latin-script languages better than a local
             // guess on a short string; a CJK script is certain either way.
             if let source, source.isScriptCertain { body["source_lang"] = Self.sourceCode(source) }
             let data = try await HTTP.postForData(
-                "https://\(host)/v2/translate",
+                Self.host(forKey: config.apiKey) + "/v2/translate",
                 headers: ["Authorization": "DeepL-Auth-Key \(config.apiKey)"], body: body
             )
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -24,6 +23,11 @@ struct DeepLService: TranslationService {
             else { throw TranslationError.invalidResponse }
             continuation.yield(translated)
         }
+    }
+
+    /// Free keys end in `:fx` and have a host of their own.
+    static func host(forKey key: String) -> String {
+        key.hasSuffix(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com"
     }
 
     static func targetCode(_ language: Language) -> String {

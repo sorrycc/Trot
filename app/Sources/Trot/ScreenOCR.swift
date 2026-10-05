@@ -17,6 +17,16 @@ enum ScreenOCR {
         }
     }
 
+    /// Whether Screen Recording is granted. macOS answers for the time the
+    /// app was opened, so a grant shows after Trot is opened again.
+    static var isAllowed: Bool { CGPreflightScreenCaptureAccess() }
+
+    /// Asks macOS to show its permission prompt, which also lists Trot
+    /// under Screen Recording in System Settings.
+    static func requestAccess() {
+        CGRequestScreenCaptureAccess()
+    }
+
     @MainActor
     static func openSystemSettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
@@ -29,8 +39,8 @@ enum ScreenOCR {
     static func capture() async throws -> URL? {
         // Without the permission screencapture still runs, but the image
         // holds only the wallpaper, so the failure would look like no text.
-        guard CGPreflightScreenCaptureAccess() else {
-            CGRequestScreenCaptureAccess()
+        guard isAllowed else {
+            requestAccess()
             throw Failure.screenRecordingDenied
         }
         let file = FileManager.default.temporaryDirectory

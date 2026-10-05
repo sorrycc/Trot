@@ -5,11 +5,13 @@ import Foundation
 struct GoogleService: TranslationService {
     let kind = ServiceKind.google
 
+    static let host = "https://translate.googleapis.com"
+
     func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<String, Error> {
         HTTP.stream { continuation in
             // The text goes in a form body, where "+" and "&" are escaped and
             // long selections don't run into URL length limits.
-            let url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t"
+            let url = Self.host + "/translate_a/single?client=gtx&dt=t"
                 + "&sl=\(source.flatMap { $0.isScriptCertain ? Self.code($0) : nil } ?? "auto")&tl=\(Self.code(target))"
             let data = try await HTTP.postForData(
                 url, headers: ["User-Agent": "Mozilla/5.0"], body: HTTP.formBody([("q", text)]),

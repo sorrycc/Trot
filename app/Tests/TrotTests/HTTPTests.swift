@@ -80,6 +80,9 @@ struct ServiceTests {
         #expect(DeepLService.sourceCode(.chineseTraditional) == "ZH")
         #expect(GoogleService.code(.chineseTraditional) == "zh-TW")
         #expect(GoogleService.code(.japanese) == "ja")
+        // Free DeepL keys have a host of their own.
+        #expect(DeepLService.host(forKey: "abc:fx") == "https://api-free.deepl.com")
+        #expect(DeepLService.host(forKey: "abc") == "https://api.deepl.com")
     }
 
     @Test func claude5ModelsAreToldApart() {

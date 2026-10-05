@@ -70,6 +70,16 @@ enum ServiceKind: String, CaseIterable, Codable, Sendable {
         return base.isEmpty ? defaultBaseURL : Self.normalizedBaseURL(base, for: self)
     }
 
+    /// The host requests go to, for opening the connection ahead of them.
+    @MainActor
+    var host: String {
+        switch self {
+        case .openAI, .claude: activeBaseURL
+        case .deepL: DeepLService.host(forKey: Settings.apiKey(for: self))
+        case .google: GoogleService.host
+        }
+    }
+
     /// `raw` as a base URL the service's paths append to: a scheme when
     /// there is none (plain http for a machine on the desk, which rarely
     /// speaks TLS), no trailing slashes, and without the path of the
@@ -191,7 +201,7 @@ enum HTTP {
     /// ignored; the pooled connection is what matters.
     @MainActor
     static func preconnect(to kind: ServiceKind) {
-        guard kind.hasBaseURL, let url = URL(string: kind.activeBaseURL), url.host() != nil else { return }
+        guard let url = URL(string: kind.host), url.host() != nil else { return }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
         request.httpMethod = "HEAD"
         session.dataTask(with: request).resume()

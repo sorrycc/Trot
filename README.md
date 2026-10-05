@@ -18,6 +18,7 @@ A small macOS translation app in the spirit of [Bob](https://github.com/ripperhe
 - **Two-language rule.** Text in any language goes into your first language; text already in it goes into your second. Pick another target from the chip in the panel, or with ⌘L.
 - **Services.** Any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL, or Google's unofficial endpoint. Switch in the panel (⌘1 to ⌘4), from the menu bar icon, or in Settings.
 - **Hotkeys you can change**, launch at login, a speaker button that reads the translation aloud, and a copy button that copies the whole translation. ⌘P pins the panel.
+- **Reads well anywhere.** The glass card keeps its own colour over a white page or a dark editor, and Arabic starts from the right.
 - **Fails politely.** An error takes the place of the translation and says what to do: a missing key or a wrong base URL comes with an Open Settings button, a network error with Retry, and Return presses it.
 - **Quick.** The panel is built at launch, long selections are laid out only as far as shown, and the connection to the service opens while the selection is read.
 
@@ -41,7 +42,7 @@ scripts/release.sh       # tests, release build, build/Trot-<version>.zip
 scripts/mock-service.py  # a fake streaming service, for trying the panel without a key
 ```
 
-At the first launch macOS asks for Accessibility access, which reading the selection in other apps needs. Screen Recording is asked for the first time you translate a screenshot. Then open Settings from the menu bar icon, pick a service, and enter its key.
+At the first launch macOS asks for Accessibility access, which reading the selection in other apps needs, and Settings opens on the Services pane so you can pick a service and enter its key. Screen Recording is asked for the first time you translate a screenshot. Settings > General shows both permissions.
 
 ## Project layout
 
@@ -49,7 +50,8 @@ At the first launch macOS asks for Accessibility access, which reading the selec
 |---|---|
 | `app/` | SwiftPM package with the AppKit app. No Xcode project is required. |
 | `app/Sources/Trot/Services/` | One file per translation service. |
-| `app/Tests/TrotTests/` | Unit tests for detection, shortcuts, OCR text joining and the HTTP helpers. |
+| `app/Sources/Trot/SettingsWindow/` | The Settings window: the grouped form and one file per pane. |
+| `app/Tests/TrotTests/` | Unit tests for detection, shortcuts, OCR text joining, the HTTP helpers and the Settings form. |
 | `scripts/bundle.sh` | Builds and assembles `build/Trot.app`. |
 | `scripts/test.sh` | Runs the tests, with the Command Line Tools or Xcode. |
 | `scripts/release.sh` | Tests, builds and zips a release. |

@@ -72,6 +72,12 @@ enum Settings {
         }
     }
 
+    /// Whether the active service still lacks the key it needs, so a
+    /// translation can't work until Settings has been visited.
+    static var needsSetup: Bool {
+        service.needsKey && apiKey(for: service).isEmpty
+    }
+
     /// As typed. Empty means the service's default.
     static func baseURL(for kind: ServiceKind) -> String {
         defaults.string(forKey: "service.\(kind.rawValue).baseURL") ?? ""
@@ -152,6 +158,10 @@ enum HotKeyAction: String, CaseIterable, Sendable {
     case translateScreenshot
 
     var defaultsKey: String { "shortcut.\(rawValue)" }
+
+    /// The id its hotkey is registered under: the position plus one, as
+    /// zero is never used.
+    var hotKeyID: UInt32 { UInt32((Self.allCases.firstIndex(of: self) ?? 0) + 1) }
 
     var displayName: String {
         switch self {

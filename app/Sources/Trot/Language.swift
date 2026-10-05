@@ -90,6 +90,9 @@ enum Language: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// Written from the right, so its paragraphs start there.
+    var isRightToLeft: Bool { self == .arabic }
+
     var nlLanguage: NLLanguage {
         switch self {
         case .english: .english

@@ -31,6 +31,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: "accessibilityPrompted")
             Accessibility.prompt()
         }
+        // A menu bar app that opens to nothing looks like one that didn't
+        // open. The first launch without a usable service shows where to
+        // set one up; after that Trot starts quietly.
+        if !UserDefaults.standard.bool(forKey: "welcomed") {
+            UserDefaults.standard.set(true, forKey: "welcomed")
+            if Settings.needsSetup {
+                showSettings(nil)
+                settingsController?.showPane(titled: "Services")
+            }
+        }
         // `-translate "text"` opens the panel with that text at launch, for
         // trying the panel from a script: open build/Trot.app --args -translate hello
         if let text = UserDefaults.standard.string(forKey: "translate"), !text.isEmpty {
@@ -44,10 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Hotkey ids are the action's position plus one; zero is never used.
     private func registerHotKeys() {
-        for (index, action) in HotKeyAction.allCases.enumerated() {
-            let id = UInt32(index + 1)
+        for action in HotKeyAction.allCases {
+            let id = action.hotKeyID
             guard let shortcut = Settings.shortcut(for: action) else {
                 HotKeyCenter.shared.unregister(id: id)
                 continue

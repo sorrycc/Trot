@@ -2,25 +2,26 @@
 
 ## Settings
 
-Settings opens from the menu bar icon or with ⌘, while a Trot window is key. Changes save as you make them.
+Settings opens from the menu bar icon or with ⌘, while a Trot window is key. Changes save as you make them. Each pane is a form of grouped rows, a title on the left and its control on the right, with notes that appear under a row when there is something to say about its value.
 
 | Pane | Setting | Default | Notes |
 |---|---|---|---|
 | General | First language | 简体中文 | The target for text in any other language |
 | General | Second language | English | The target for text already in the first language. Picking the same language for both swaps them |
-| General | Open Trot at login | off | Through the system login items. When macOS waits for approval, the pane says so |
-| General | Accessibility | | Shows whether the permission is granted |
+| General | Open Trot at login | off | Through the system login items. When macOS waits for approval, the row says so |
+| General | Accessibility | | Shows whether the permission is granted, with a button to System Settings while it isn't |
+| General | Screen Recording | | The same for the permission screenshots need. macOS reports a grant only after Trot is opened again |
 | Services | Service | OpenAI Compatible | The active service, also switchable in the panel |
 | Services | Base URL | per service | OpenAI Compatible: `https://api.openai.com/v1`. Claude: `https://api.anthropic.com`. Point it at DeepSeek, Qwen, Ollama or a proxy. A missing scheme is added (`http` for localhost and `.local` names, `https` otherwise) and a pasted endpoint path dropped; the pane shows the URL requests go to |
 | Services | API key | empty | DeepL keys ending in `:fx` use the free API |
 | Services | Model | per service | OpenAI Compatible: `gpt-4o-mini`. Claude: `claude-opus-5-5` |
-| Services | Test | | Translates a sentence with the current settings, from English into whatever English goes to, and shows the result or the error |
-| Shortcuts | Translate Selection | ⌥D | Click, then press a combination with ⌘, ⌥ or ⌃. The held modifiers show as you press them. Delete clears it. Reset is enabled only for a changed shortcut |
+| Services | Test translation | | Translates a sentence with the current settings, from English into whatever English goes to, and shows the result or the error |
+| Shortcuts | Translate Selection | ⌥D | Click, then press a combination with ⌘, ⌥ or ⌃. The held modifiers show as you press them. Delete clears it. The arrow button goes back to the default and is enabled only for a changed shortcut |
 | Shortcuts | Translate Input | ⌥A | |
 | Shortcuts | Translate Screenshot | ⌥S | |
 | About | | | The version, a short description and links to the project |
 
-Under the API key field a link opens the page where the service hands out keys. Every pane is the same width, so switching between them moves nothing.
+Under the key, URL and model rows a link opens the page where the service hands out keys. Every pane is the same width, so switching between them moves nothing.
 
 <p align="center">
   <img src="images/settings-services.png" width="540" alt="The Services pane with OpenAI Compatible selected">
@@ -39,7 +40,7 @@ Shortcuts are registered system-wide through Carbon hotkeys, which work without 
 
 DeepL and Google are told the source language only when the script makes it certain (Chinese, Japanese, Korean, Thai); for everything else they detect it themselves, which beats a local guess on a short string or a script several languages share. The LLM services always get the detected language as a hint.
 
-The connection to the service opens when a hotkey is pressed, so its setup overlaps with reading the selection. Requests give up after 30 seconds without data and 3 minutes in all. A reply that isn't a translation, such as a web page from a wrong base URL, is shown as an error rather than an empty result, and so are an empty translation and one the service cut off at its output limit. A status code with no message of its own reads as a sentence, such as "The API key was rejected (HTTP 401)". Errors that Settings can fix, a missing or rejected key or a wrong base URL, come with an Open Settings button; Google, which has nothing to set, gets Retry.
+The connection to the service opens when a hotkey is pressed, whichever service it is, so its setup overlaps with reading the selection. Requests give up after 30 seconds without data and 3 minutes in all. A reply that isn't a translation, such as a web page from a wrong base URL, is shown as an error rather than an empty result, and so are an empty translation and one the service cut off at its output limit. A status code with no message of its own reads as a sentence, such as "The API key was rejected (HTTP 401)". Errors that Settings can fix, a missing or rejected key or a wrong base URL, come with an Open Settings button; Google, which has nothing to set, gets Retry.
 
 ## Data
 
@@ -53,7 +54,7 @@ For trying the app from a script:
 open build/Trot.app --args -translate "Hello"        # open the panel with that text
 open build/Trot.app --args -input YES                # open the input panel
 open build/Trot.app --args -settings Services        # open a Settings pane
-open build/Trot.app --args -preview YES -translate … # show the panel without taking the keyboard
+open build/Trot.app --args -preview YES -translate … # show the panel without taking the keyboard; clicks elsewhere leave it open
 open build/Trot.app --args -appearance dark          # force dark (or light) for a screenshot
 ```
 
@@ -69,4 +70,4 @@ The path picks the behaviour: `/v1` streams a translation one character at a tim
 
 ## Tests
 
-`scripts/test.sh` runs the unit tests with Swift Testing. They cover language detection, the two-language rule and the swap, shortcut parsing and display, the joining of screenshot lines into paragraphs, the HTTP helpers, base URL tidying, error messages, the service language codes, and which button an error gets. The script adds the framework paths the Command Line Tools need; with Xcode installed, `swift test --package-path app` works too.
+`scripts/test.sh` runs the unit tests with Swift Testing. They cover language detection, the two-language rule and the swap, shortcut parsing and display, the joining of screenshot lines into paragraphs, the HTTP helpers, base URL tidying, error messages, the service language codes, which button an error gets, and the Settings form's hairlines and sizing. The script adds the framework paths the Command Line Tools need; with Xcode installed, `swift test --package-path app` works too.

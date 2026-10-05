@@ -31,4 +31,26 @@ struct SettingsTests {
         // Traditional Chinese counts as the user's Chinese.
         #expect(Settings.target(for: .chineseTraditional) == .english)
     }
+
+    @Test func aServiceWithoutItsKeyNeedsSetup() {
+        let defaults = UserDefaults.standard
+        let saved = (defaults.string(forKey: "service"), defaults.string(forKey: "service.deepL.apiKey"))
+        defer {
+            defaults.set(saved.0, forKey: "service")
+            defaults.set(saved.1, forKey: "service.deepL.apiKey")
+        }
+        defaults.set(ServiceKind.deepL.rawValue, forKey: "service")
+        Settings.setAPIKey("", for: .deepL)
+        #expect(Settings.needsSetup)
+        Settings.setAPIKey("key:fx", for: .deepL)
+        #expect(!Settings.needsSetup)
+        // Google has no key to enter.
+        defaults.set(ServiceKind.google.rawValue, forKey: "service")
+        #expect(!Settings.needsSetup)
+    }
+
+    @Test func hotKeyIdsAreDistinctAndNeverZero() {
+        let ids = HotKeyAction.allCases.map(\.hotKeyID)
+        #expect(Set(ids).count == ids.count && !ids.contains(0))
+    }
 }

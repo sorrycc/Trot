@@ -81,4 +81,8 @@ struct LanguageTests {
             #expect(!language.englishName.isEmpty)
         }
     }
+
+    @Test func onlyArabicStartsOnTheRight() {
+        #expect(Language.allCases.filter(\.isRightToLeft) == [.arabic])
+    }
 }

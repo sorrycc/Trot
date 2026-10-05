@@ -35,14 +35,15 @@ final class StatusItem: NSObject {
 
     private func rebuild() {
         let menu = NSMenu()
-        let actions: [(HotKeyAction, Selector)] = [
-            (.translateSelection, #selector(AppDelegate.translateSelection(_:))),
-            (.translateInput, #selector(AppDelegate.translateInput(_:))),
-            (.translateScreenshot, #selector(AppDelegate.translateScreenshot(_:))),
+        let actions: [(HotKeyAction, Selector, String)] = [
+            (.translateSelection, #selector(AppDelegate.translateSelection(_:)), "character.cursor.ibeam"),
+            (.translateInput, #selector(AppDelegate.translateInput(_:)), "keyboard"),
+            (.translateScreenshot, #selector(AppDelegate.translateScreenshot(_:)), "text.viewfinder"),
         ]
-        for (action, selector) in actions {
+        for (action, selector, symbol) in actions {
             let menuItem = menu.addItem(withTitle: action.displayName, action: selector, keyEquivalent: "")
             menuItem.target = target
+            menuItem.image = Self.symbol(symbol)
             if let shortcut = Settings.shortcut(for: action) {
                 menuItem.keyEquivalent = shortcut.key
                 menuItem.keyEquivalentModifierMask = shortcut.modifiers
@@ -59,14 +60,22 @@ final class StatusItem: NSObject {
         }
         let serviceItem = menu.addItem(withTitle: "Service: \(Settings.service.shortName)", action: nil, keyEquivalent: "")
         serviceItem.submenu = services
+        serviceItem.image = Self.symbol("globe")
         menu.addItem(.separator())
         let about = menu.addItem(withTitle: "About Trot", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
         about.target = target
+        about.image = Self.symbol("info.circle")
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         settings.target = target
+        settings.image = Self.symbol("gearshape")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Trot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
+    }
+
+    /// An icon for a menu item, as the system's own menus have them.
+    private static func symbol(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 
     @objc private func pickService(_ sender: NSMenuItem) {
