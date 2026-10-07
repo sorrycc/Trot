@@ -11,4 +11,4 @@ if [ -d "$DEV/Library/Developer/Frameworks/Testing.framework" ]; then
     LIBS="$DEV/Library/Developer/usr/lib"
     FLAGS=(-Xswiftc "-F$FRAMEWORKS" -Xlinker "-F$FRAMEWORKS" -Xlinker -rpath -Xlinker "$FRAMEWORKS" -Xlinker -rpath -Xlinker "$LIBS")
 fi
-exec swift test --package-path "$ROOT/app" "${FLAGS[@]}" "$@"
+exec swift test --package-path "$ROOT/app" ${FLAGS[@]+"${FLAGS[@]}"} "$@"
