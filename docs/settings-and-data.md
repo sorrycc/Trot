@@ -58,16 +58,4 @@ open build/Trot.app --args -preview YES -translate … # show the panel without 
 open build/Trot.app --args -appearance dark          # force dark (or light) for a screenshot
 ```
 
-## Trying the panel without a key
-
-`scripts/mock-service.py` serves a fake OpenAI-compatible API on `http://127.0.0.1:48765`. Any setting can be given as a launch argument, which overrides the saved one for that run only:
-
-```sh
-open build/Trot.app --args -service openAI -service.openAI.baseURL http://127.0.0.1:48765/v1 -service.openAI.apiKey x -translate hello
-```
-
-The path picks the behaviour: `/v1` streams a translation one character at a time, `/slow` does so slowly, `/fail` answers with an error, `/plain` ignores `stream` and answers with one message, as some gateways do, `/empty` streams nothing, `/rtl` answers in Arabic, `/long` with several screens of text, and `/length` stops with `finish_reason: length`, as a cut-off reply does.
-
-## Tests
-
-`scripts/test.sh` runs the unit tests with Swift Testing. They cover language detection, the two-language rule and the swap, shortcut parsing and display, the joining of screenshot lines into paragraphs, the HTTP helpers, base URL tidying, error messages, the service language codes, which button an error gets, and the Settings form's hairlines and sizing. The script adds the framework paths the Command Line Tools need; with Xcode installed, `swift test --package-path app` works too.
+For trying the panel without a key and running the tests, see [Development](development.md).

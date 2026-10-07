@@ -4,7 +4,7 @@
 
 # Trot
 
-A small macOS translation app in the spirit of [Bob](https://github.com/ripperhe/Bob), kept simple: a menu bar icon, three hotkeys and one floating panel. Native Swift and AppKit, no web views, so the panel is on screen before you've let go of the keys.
+Trot is a native macOS menu bar app that translates selected text, typed text and screenshots in a floating panel.
 
 <p align="center">
   <img src="docs/images/panel-dark.png" width="486" alt="The Trot panel with an English sentence and its Chinese translation">
@@ -12,59 +12,43 @@ A small macOS translation app in the spirit of [Bob](https://github.com/ripperhe
 
 ## Features
 
-- **Translate the selection.** Press ⌥D with text selected in any app. The translation streams into a glass panel at the mouse, which grows with the text.
-- **Translate what you type.** ⌥A opens the same panel with an editable field. Return translates, Shift+Return adds a line.
-- **Translate a screenshot.** ⌥S draws the system crosshair over a region, reads the text with Vision, and translates it.
-- **Two-language rule.** Text in any language goes into your first language; text already in it goes into your second. Pick another target from the chip in the panel, or with ⌘L.
-- **Services.** Any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL, or Google's unofficial endpoint. Switch in the panel (⌘1 to ⌘4), from the menu bar icon, or in Settings.
-- **Hotkeys you can change**, launch at login, a speaker button that reads the translation aloud, and a copy button that copies the whole translation. ⌘P pins the panel.
-- **Reads well anywhere.** The glass card keeps its own colour over a white page or a dark editor, and Arabic starts from the right.
-- **Fails politely.** An error takes the place of the translation and says what to do: a missing key or a wrong base URL comes with an Open Settings button, a network error with Retry, and Return presses it.
-- **Quick.** The panel is built at launch, long selections are laid out only as far as shown, and the connection to the service opens while the selection is read.
+- Translate text selected in any app, with the result streaming into a panel at the mouse.
+- Type or paste text into the panel and translate it.
+- Translate the text in a screen region, read with Vision.
+- Text in your first language goes into your second; anything else goes into your first.
+- Use any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL or Google.
+
+## Usage
+
+| Hotkey | Action |
+|---|---|
+| ⌥D | Translate the selection |
+| ⌥A | Open the panel to type text |
+| ⌥S | Translate a screenshot |
+
+In the panel, ⌘L picks another target language, ⌘1 to ⌘4 switch the service and ⌘P pins the panel. You can change the hotkeys in Settings.
 
 ## Requirements
 
 - macOS 26 or later
-- The Swift toolchain from the Xcode Command Line Tools, to build and test
+- Xcode Command Line Tools, to build
 
-## Build and run
+## Installation
+
+Build from source:
 
 ```sh
-scripts/bundle.sh        # release build; pass `debug` for a debug build
+scripts/bundle.sh
 open build/Trot.app
 ```
 
-The script builds the Swift package and assembles an ad-hoc signed `build/Trot.app`. Trot lives in the menu bar; there is no Dock icon.
-
-```sh
-scripts/test.sh          # unit tests (Swift Testing)
-scripts/release.sh       # tests, release build, build/Trot-<version>.zip
-scripts/mock-service.py  # a fake streaming service, for trying the panel without a key
-```
-
-At the first launch macOS asks for Accessibility access, which reading the selection in other apps needs, and Settings opens on the Services pane so you can pick a service and enter its key. Screen Recording is asked for the first time you translate a screenshot. Settings > General shows both permissions.
-
-## Project layout
-
-| Path | Description |
-|---|---|
-| `app/` | SwiftPM package with the AppKit app. No Xcode project is required. |
-| `app/Sources/Trot/Services/` | One file per translation service. |
-| `app/Sources/Trot/SettingsWindow/` | The Settings window: the grouped form and one file per pane. |
-| `app/Tests/TrotTests/` | Unit tests for detection, shortcuts, OCR text joining, the HTTP helpers and the Settings form. |
-| `scripts/bundle.sh` | Builds and assembles `build/Trot.app`. |
-| `scripts/test.sh` | Runs the tests, with the Command Line Tools or Xcode. |
-| `scripts/release.sh` | Tests, builds and zips a release. |
-| `scripts/mock-service.py` | An OpenAI-compatible fake that streams, fails or answers in one piece. |
-| `scripts/make-icon.swift` | Cuts the app icon and `.icns` out of `app/Resources/Trot-artwork.png`. |
-| `.github/workflows/ci.yml` | Builds and tests on every push. |
+Trot runs in the menu bar and has no Dock icon. On first launch macOS asks for Accessibility access, which Trot needs to read the selection in other apps, and Settings opens so you can pick a service and enter its key. macOS asks for Screen Recording access the first time you translate a screenshot.
 
 ## Documentation
 
-| Guide | Covers |
-|---|---|
-| [Using Trot](docs/using.md) | The panel, hotkeys, languages, screenshots |
-| [Settings and data](docs/settings-and-data.md) | Settings, services, where data lives, launch arguments |
+- [Using Trot](docs/using.md): the panel, hotkeys, languages and screenshots
+- [Settings and data](docs/settings-and-data.md): settings, services, where data lives and launch arguments
+- [Development](docs/development.md): scripts, tests and project layout
 
 ## License
 
