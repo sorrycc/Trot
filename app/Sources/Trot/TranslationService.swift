@@ -141,7 +141,16 @@ struct ServiceConfig: Sendable {
 /// streaming yield the whole translation once.
 protocol TranslationService: Sendable {
     var kind: ServiceKind { get }
-    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<String, Error>
+    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<TranslationChunk, Error>
+}
+
+/// One piece of a translation stream.
+enum TranslationChunk: Sendable, Equatable {
+    /// More of the translation.
+    case text(String)
+    /// The model is reasoning before it answers, which can take a while
+    /// with nothing to show.
+    case thinking
 }
 
 enum TranslationError: LocalizedError {
@@ -312,8 +321,8 @@ enum HTTP {
     }
 
     /// A stream that runs `work` in a task cancelled with the stream.
-    static func stream(_ work: @escaping @Sendable (AsyncThrowingStream<String, Error>.Continuation) async throws -> Void)
-        -> AsyncThrowingStream<String, Error>
+    static func stream(_ work: @escaping @Sendable (AsyncThrowingStream<TranslationChunk, Error>.Continuation) async throws -> Void)
+        -> AsyncThrowingStream<TranslationChunk, Error>
     {
         AsyncThrowingStream { continuation in
             let task = Task {

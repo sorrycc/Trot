@@ -5,7 +5,7 @@ struct ClaudeService: TranslationService {
     let kind = ServiceKind.claude
     let config: ServiceConfig
 
-    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<String, Error> {
+    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<TranslationChunk, Error> {
         let config = config
         return HTTP.stream { continuation in
             guard !config.apiKey.isEmpty else { throw TranslationError.missingKey(.claude) }
@@ -37,13 +37,13 @@ struct ClaudeService: TranslationService {
                     let content = json["content"] as? [[String: Any]],
                     let text = content.first(where: { $0["type"] as? String == "text" })?["text"] as? String
                 else { throw TranslationError.notAStream(body) }
-                continuation.yield(text)
+                continuation.yield(.text(text))
                 if json["stop_reason"] as? String == "max_tokens" { throw TranslationError.truncated }
             }
         }
     }
 
-    private static func readEvents(_ bytes: URLSession.AsyncBytes, into continuation: AsyncThrowingStream<String, Error>.Continuation) async throws {
+    private static func readEvents(_ bytes: URLSession.AsyncBytes, into continuation: AsyncThrowingStream<TranslationChunk, Error>.Continuation) async throws {
             for try await sse in HTTP.events(bytes) {
                 let event = sse.json
                 switch event["type"] as? String {
@@ -51,7 +51,7 @@ struct ClaudeService: TranslationService {
                     guard let delta = event["delta"] as? [String: Any], delta["type"] as? String == "text_delta",
                         let piece = delta["text"] as? String
                     else { continue }
-                    continuation.yield(piece)
+                    continuation.yield(.text(piece))
                 case "message_delta":
                     let delta = event["delta"] as? [String: Any]
                     switch delta?["stop_reason"] as? String {

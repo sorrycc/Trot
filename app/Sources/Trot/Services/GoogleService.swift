@@ -7,7 +7,7 @@ struct GoogleService: TranslationService {
 
     static let host = "https://translate.googleapis.com"
 
-    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<String, Error> {
+    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<TranslationChunk, Error> {
         HTTP.stream { continuation in
             // The text goes in a form body, where "+" and "&" are escaped and
             // long selections don't run into URL length limits.
@@ -22,7 +22,7 @@ struct GoogleService: TranslationService {
                 let sentences = json.first as? [[Any]]
             else { throw TranslationError.invalidResponse }
             let translated = sentences.compactMap { $0.first as? String }.joined()
-            continuation.yield(translated)
+            continuation.yield(.text(translated))
         }
     }
 

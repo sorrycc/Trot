@@ -5,7 +5,7 @@ struct DeepLService: TranslationService {
     let kind = ServiceKind.deepL
     let config: ServiceConfig
 
-    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<String, Error> {
+    func translate(_ text: String, from source: Language?, to target: Language) -> AsyncThrowingStream<TranslationChunk, Error> {
         let config = config
         return HTTP.stream { continuation in
             guard !config.apiKey.isEmpty else { throw TranslationError.missingKey(.deepL) }
@@ -21,7 +21,7 @@ struct DeepLService: TranslationService {
                 let translations = json["translations"] as? [[String: Any]],
                 let translated = translations.first?["text"] as? String
             else { throw TranslationError.invalidResponse }
-            continuation.yield(translated)
+            continuation.yield(.text(translated))
         }
     }
 

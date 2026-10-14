@@ -21,7 +21,7 @@ scripts/mock-service.py  # a fake streaming service, for trying the panel withou
 open build/Trot.app --args -service openAI -service.openAI.baseURL http://127.0.0.1:48765/v1 -service.openAI.apiKey x -translate hello
 ```
 
-The path picks the behaviour: `/v1` streams a translation one character at a time, `/slow` does so slowly, `/fail` answers with an error, `/plain` ignores `stream` and answers with one message, as some gateways do, `/empty` streams nothing, `/rtl` answers in Arabic, `/long` with several screens of text, and `/length` stops with `finish_reason: length`, as a cut-off reply does.
+The path picks the behaviour: `/v1` streams a translation one character at a time, `/slow` does so slowly, `/fail` answers with an error, `/plain` ignores `stream` and answers with one message, as some gateways do, `/empty` streams nothing, `/rtl` answers in Arabic, `/long` with several screens of text, `/length` stops with `finish_reason: length`, as a cut-off reply does, and `/think` sends reasoning first and then a short reply in one burst, as DeepSeek's thinking models do.
 
 ## Tests
 

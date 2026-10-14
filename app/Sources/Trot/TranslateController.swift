@@ -170,12 +170,21 @@ final class TranslateController {
         let start = ContinuousClock.now
         task = Task { [weak self] in
             do {
+                // Counted here: the panel draws chunks a frame later, so
+                // its text can still be empty when the stream ends.
+                var received = ""
                 for try await chunk in service.translate(text, from: detected, to: target) {
                     guard let self, generation == run else { return }
-                    panel.append(chunk)
+                    switch chunk {
+                    case .text(let piece):
+                        received += piece
+                        panel.append(piece)
+                    case .thinking:
+                        panel.showThinking()
+                    }
                 }
                 guard let self, generation == run, !Task.isCancelled else { return }
-                if panel.resultText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if received.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     panel.showError("\(kind.displayName) sent back an empty translation.", action: ("Retry", { [weak self] in self?.retry() }))
                     return
                 }

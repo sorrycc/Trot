@@ -151,7 +151,7 @@ final class ServicesSettingsPane: SettingsPane, NSTextFieldDelegate {
                 var result = ""
                 // Into whatever English goes to, so the result always differs.
                 for try await chunk in service.translate("The quick brown fox jumps over the lazy dog.", from: .english, to: Settings.target(for: .english)) {
-                    result += chunk
+                    if case .text(let piece) = chunk { result += piece }
                 }
                 guard !Task.isCancelled, let self else { return }
                 let text = result.trimmingCharacters(in: .whitespacesAndNewlines)

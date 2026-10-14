@@ -7,6 +7,8 @@ Then in Settings > Services pick OpenAI Compatible, set the base URL to
 http://127.0.0.1:48765/v1 and any key. Paths change the behaviour:
 
     /v1/chat/completions       streams a translation one character at a time
+    /think/chat/completions    reasons for a while first, as DeepSeek does, then
+                               sends a short reply all at once
     /slow/chat/completions     the same, slower, to watch the panel grow
     /fail/chat/completions     answers HTTP 500 with an error message
     /plain/chat/completions    ignores `stream` and answers with one JSON message
@@ -68,6 +70,20 @@ class Handler(BaseHTTPRequestHandler):
             text = RTL
         elif "/long/" in self.path:
             text = LONG
+        if "/think/" in self.path:
+            # Reasoning the app should not show, then a reply that arrives
+            # in one burst with the end of the stream.
+            for word in ("The user wants this translated. " * 20).split(" "):
+                event = {"choices": [{"delta": {"content": None, "reasoning_content": word + " "}}]}
+                self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
+                self.wfile.flush()
+                time.sleep(0.03)
+            for piece in ("api", ".deep", "seek", ".com"):
+                event = {"choices": [{"delta": {"content": piece, "reasoning_content": None}}]}
+                self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
         delay = 0.12 if "/slow/" in self.path else 0.005 if "/long/" in self.path else 0.03
         for character in text:
             event = {"choices": [{"delta": {"content": character}}]}

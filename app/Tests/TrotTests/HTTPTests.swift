@@ -56,6 +56,15 @@ struct HTTPTests {
         #expect(SSEEvent(data: Data(#"{"a":1}"#.utf8)).json["a"] as? Int == 1)
         #expect(SSEEvent(data: Data("nope".utf8)).json.isEmpty)
     }
+
+    @Test func openAIDeltasAreTextOrThinking() {
+        #expect(OpenAIService.chunk(in: ["content": "api"]) == .text("api"))
+        // DeepSeek sends a null content beside the reasoning.
+        #expect(OpenAIService.chunk(in: ["content": NSNull(), "reasoning_content": "The user"]) == .thinking)
+        #expect(OpenAIService.chunk(in: ["reasoning": "Hmm"]) == .thinking)
+        #expect(OpenAIService.chunk(in: ["content": "", "reasoning_content": NSNull()]) == nil)
+        #expect(OpenAIService.chunk(in: ["role": "assistant", "content": "", "reasoning_content": ""]) == nil)
+    }
 }
 
 @Suite("Services")

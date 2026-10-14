@@ -84,6 +84,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// drawing each would cost more than it shows.
     private var pendingChunks = ""
     private var flushScheduled = false
+    /// The footer says "Thinking…" until the first text arrives.
+    private var isThinking = false
     /// A notice replaces the result area, so an empty one has nothing to say.
     private(set) var showsError = false
     /// Waiting for the selection or a screenshot: only the header and the
@@ -404,6 +406,8 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     func showError(_ message: String, action: (String, () -> Void)? = nil) {
         showsError = true
         isReading = false
+        // A flush still to come would draw text above the error.
+        pendingChunks = ""
         endStreaming()
         showStatus("")
         showNotice(message, style: .error, action: action)
@@ -463,12 +467,24 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     }
 
     func append(_ chunk: String) {
+        if isThinking {
+            isThinking = false
+            showStatus("Translating…")
+        }
         pendingChunks += chunk
         guard !flushScheduled else { return }
         flushScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [weak self] in
             self?.flushChunks()
         }
+    }
+
+    /// The model is reasoning before it answers. Says so in the footer, so
+    /// a long wait with nothing in it doesn't look stuck.
+    func showThinking() {
+        guard isStreaming, resultText.isEmpty, pendingChunks.isEmpty else { return }
+        isThinking = true
+        showStatus("Thinking…")
     }
 
     /// The translation is complete. `status` goes in the footer.
@@ -536,6 +552,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
         resultText = ""
         pendingChunks = ""
         isStreaming = false
+        isThinking = false
         setText("", in: resultView, attributes: resultAttributes)
         // A box left at its cap by a long result would stay there for the
         // next stream, which skips measuring once the box is full.
@@ -546,6 +563,7 @@ final class TranslatePanel: NSPanel, NSTextViewDelegate {
     /// away leaves the text and its layout as they are.
     private func endStreaming() {
         isStreaming = false
+        isThinking = false
         hideCaret()
     }
 
