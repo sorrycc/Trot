@@ -20,7 +20,7 @@ http://127.0.0.1:48765/v1 and any key. Paths change the behaviour:
 The app can be pointed at it for one run, leaving the saved base URL and
 key alone (the -service argument pins the service for that run):
 
-    open build/Trot.app --args -service openAI \
+    open build/darwin-arm64/Trot.app --args -service openAI \
         -service.openAI.baseURL http://127.0.0.1:48765/v1 -service.openAI.apiKey x -translate hello
 """
 import json

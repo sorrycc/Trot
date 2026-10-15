@@ -1,4 +1,5 @@
-/build
-/app/.build
-/app/.swiftpm
+/build/
+/.mygo/
+/cmd/trot/trot
 .DS_Store
+/trot

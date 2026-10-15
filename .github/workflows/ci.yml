@@ -1,3 +1,5 @@
+# Tests and builds Trot on every push to main and on pull requests, and
+# uploads the app it builds.
 name: CI
 
 on:
@@ -8,18 +10,22 @@ on:
 jobs:
   build:
     name: Build and test
-    runs-on: macos-26
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Swift version
-        run: swift --version
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      # -short leaves the clipboard of the runner alone.
       - name: Test
-        run: scripts/test.sh
-      - name: Bundle
-        run: scripts/bundle.sh release
+        run: go test -short ./...
+      - name: Build
+        run: go tool mygo build -platform darwin/arm64
       - name: Verify signature
-        run: codesign --verify --strict --verbose=2 build/Trot.app
+        run: codesign --verify --strict --verbose=2 build/darwin-arm64/Trot.app
       - uses: actions/upload-artifact@v4
         with:
           name: Trot.app
-          path: build/Trot.app
+          path: build/darwin-arm64/Trot.app

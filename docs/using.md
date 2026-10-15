@@ -19,13 +19,13 @@ When a translation fails, a notice in a red-tinted box takes the place of the tr
 
 Selections longer than 20,000 characters are cut there, and the footer says so.
 
-The card is tinted glass. It lets a trace of what is behind it through but keeps its own colour, so the text reads the same over a white page and a dark editor.
+The card is the system's popover material under a tint. It lets a trace of what is behind it through but keeps its own colour, so the text reads the same over a white page and a dark editor.
 
-The panel opens below the mouse, or above it near the bottom of the screen, and stays within the screen. It fades and scales in and out, unless Reduce Motion is on in System Settings. Drag it anywhere by its background. Closing the panel stops the translation.
+The panel opens below the mouse, or above it near the bottom of the screen, and stays within the screen. It fades in and out, and grows with the text, unless Reduce Motion is on in System Settings. Drag it anywhere by its background. Closing the panel stops the translation.
 
 ## The menu bar
 
-The menu bar icon offers the three actions with their hotkeys, a Service submenu that switches the active service, About, Settings and Quit.
+The menu bar icon offers the three actions with their hotkeys, a Service submenu that switches the active service, About, Settings, Check for Updates and Quit.
 
 The first time Trot opens without a key for its service, it opens Settings on the Services pane. After that it starts quietly in the menu bar.
 
