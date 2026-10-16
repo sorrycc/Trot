@@ -37,10 +37,6 @@ jobs:
     needs: draft-release
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    env:
-      # Without a Developer ID certificate the apps stay signed ad hoc, as
-      # local builds are, and are not notarized.
-      HAS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -52,9 +48,10 @@ jobs:
         with:
           go-version-file: go.mod
       # mygo.json signs ad hoc, so that builds on any Mac work; releases sign
-      # with the Developer ID and are notarized.
+      # with the Developer ID and are notarized. An update signed ad hoc would
+      # lose the Accessibility and Screen Recording access of the app it
+      # replaces, so a release without the certificate fails.
       - name: Import the certificate and the notary credentials
-        if: env.HAS_CERTIFICATE == 'true'
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -62,6 +59,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
+          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            test -n "${!name}" || { echo "::error::$name is not set"; exit 1; }
+          done
           keychain="$RUNNER_TEMP/signing.keychain-db"
           password="$(openssl rand -base64 24)"
           security create-keychain -p "$password" "$keychain"
@@ -99,7 +99,7 @@ jobs:
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: go tool mygo build -platform "${{ matrix.platform }}" -upload
       - name: Remove the keychain
-        if: always() && env.HAS_CERTIFICATE == 'true'
+        if: always()
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
 
   publish:

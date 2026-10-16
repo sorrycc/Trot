@@ -21,6 +21,8 @@ needs a `## <version>` section here, or its build fails.
   Trot already uses, such as ⌥D, can be recorded again.
 - A crash leaves its report in `crash.log` in the settings folder, and the
   last ten in `crashes`.
+- Releases are signed with a Developer ID and notarized, so macOS opens
+  them without a warning, and updates keep Trot's permissions.
 - Because the app is new, macOS asks for Accessibility and Screen Recording
   again.
 

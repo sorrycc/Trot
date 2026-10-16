@@ -66,6 +66,18 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     echo "Release $TAG exists already." >&2
     exit 1
 fi
+# A secret the Release workflow uses but the repository lacks fails it
+# halfway, or, for the update key, publishes a release no app updates to.
+SECRETS="$(gh secret list --json name --jq '.[].name')" \
+    || { echo "Couldn't list the repository's secrets." >&2; exit 1; }
+MISSING="$(comm -23 \
+    <(grep -o 'secrets\.[A-Z0-9_]*' .github/workflows/release.yml | sed 's/^secrets\.//' | sort -u) \
+    <(sort -u <<<"$SECRETS"))"
+if [ -n "$MISSING" ]; then
+    echo "The Release workflow needs these secrets, which aren't set: $(echo $MISSING)" >&2
+    echo "Set them with: gh secret set <name>" >&2
+    exit 1
+fi
 if grep -q "^## $VERSION\$" CHANGELOG.md; then
     RENAME_UNRELEASED=
 elif /usr/bin/python3 - <<'PY'
@@ -83,13 +95,16 @@ fi
 
 echo "==> $CURRENT -> $VERSION"
 /usr/bin/python3 - "$VERSION" <<'PY'
-import json, sys
+import json, re, sys
+# Replaces only the version, keeping the file's hand-written layout, which
+# json.dump would spread over many lines.
 with open("mygo.json") as f:
-    config = json.load(f)
-config["version"] = sys.argv[1]
+    text = f.read()
+text, n = re.subn(r'^(  "version": ")[^"]*(")', r"\g<1>%s\g<2>" % sys.argv[1], text, count=1, flags=re.M)
+if n != 1 or json.loads(text)["version"] != sys.argv[1]:
+    sys.exit("Couldn't find the version in mygo.json.")
 with open("mygo.json", "w") as f:
-    json.dump(config, f, indent=2, ensure_ascii=False)
-    f.write("\n")
+    f.write(text)
 PY
 FILES=mygo.json
 if [ -n "$RENAME_UNRELEASED" ]; then

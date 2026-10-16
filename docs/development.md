@@ -53,19 +53,19 @@ Write the release notes under `## Unreleased` in `CHANGELOG.md` and commit them,
 scripts/bump.sh patch    # or minor, major, or a version such as 0.5.0
 ```
 
-It sets the version in `mygo.json`, renames `## Unreleased` to `## <version>` in `CHANGELOG.md`, commits and tags `v<version>`, and after asking pushes `main` and the tag. The [Release workflow](../.github/workflows/release.yml) then builds the app for Apple silicon and Intel, uploads the disk images and the signed updates, and publishes the release. Installed apps check for it once a day, and from **Check for Updates…**; the update window shows the version's section of the changelog.
+It first checks that the repository has every secret the Release workflow uses. Then it sets the version in `mygo.json`, renames `## Unreleased` to `## <version>` in `CHANGELOG.md`, commits and tags `v<version>`, and after asking pushes `main` and the tag. The [Release workflow](../.github/workflows/release.yml) then builds the app for Apple silicon and Intel, uploads the disk images and the signed updates, and publishes the release. Installed apps check for it once a day, and from **Check for Updates…**; the update window shows the version's section of the changelog.
 
 The workflow needs these repository secrets:
 
 | Secret | What |
 |---|---|
 | `MYGO_UPDATER_PRIVATE_KEY` | `mygo-update.key` from `go tool mygo keygen`, whose public key is in `mygo.json`. Required |
-| `MACOS_CERTIFICATE` | the Developer ID Application certificate and its key, as a base64 `.p12`. Without it the apps are signed ad hoc and not notarized |
+| `MACOS_CERTIFICATE` | the Developer ID Application certificate and its key, as a base64 `.p12`. Required: an update signed ad hoc would lose the app's Accessibility and Screen Recording access |
 | `MACOS_CERTIFICATE_PASSWORD` | the password of the `.p12` |
 | `APPLE_ID`, `APPLE_TEAM_ID` | the Apple ID of the developer account, and its team ID |
 | `APPLE_APP_PASSWORD` | an app-specific password of the Apple ID, from account.apple.com |
 
-Local builds stay signed ad hoc; only the workflow signs with the Developer ID.
+All of them are required. Local builds stay signed ad hoc; only the workflow signs with the Developer ID and notarizes.
 
 ## Project layout
 
