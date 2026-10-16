@@ -3,7 +3,7 @@
 The update window shows the section of the version it offers. Every release
 needs a `## <version>` section here, or its build fails.
 
-## Unreleased
+## 0.5.0
 
 - Trot is rewritten in Go and draws its own interface with
   [MyGo](https://github.com/egoist/mygo): one binary, no Swift toolchain to
