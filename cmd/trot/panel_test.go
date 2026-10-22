@@ -164,17 +164,38 @@ func TestInputModeTranslatesOnReturn(t *testing.T) {
 	}
 }
 
+// TestHintsGoAwayAsTheUserTypes: typing takes the hint away, which folds
+// up as it fades, so the card closes up under it rather than jumping.
 func TestHintsGoAwayAsTheUserTypes(t *testing.T) {
-	p, _, tt := testPanel(t, nil)
+	p, h, tt := testPanel(t, nil)
 	p.showInput(mygo.Point{}, "No text is selected. Type here instead.", nil)
+	tt.Frame()
 	tt.Frame()
 	if !tt.HasText("No text is selected. Type here instead.") {
 		t.Fatal("no hint")
 	}
+	tall := h.height
 	tt.Type("x")
 	tt.Frame()
-	if tt.HasText("No text is selected. Type here instead.") {
+	tt.Frame()
+	if p.notice != nil {
 		t.Error("the hint stayed")
+	}
+	folding := h.height
+	time.Sleep(enterAnim.Duration + 100*time.Millisecond)
+	tt.Frame()
+	tt.Frame()
+	if tt.HasText("No text is selected. Type here instead.") {
+		t.Error("the hint stayed on screen")
+	}
+	if !(h.height < tall) || folding > tall {
+		t.Errorf("the card went %d, %d, %d; want it to close up", tall, folding, h.height)
+	}
+	if testing.Short() {
+		return
+	}
+	if !(folding > h.height) {
+		t.Errorf("the card went from %d to %d at once; want it to fold up", tall, h.height)
 	}
 }
 
@@ -540,5 +561,28 @@ func TestShots(t *testing.T) {
 			png.Encode(f, tt.Image())
 			f.Close()
 		}
+	}
+}
+
+// TestPlaceholderUntilFirstWord: a line of placeholder holds the place of
+// the translation until its first word, at the height of that word's
+// line, so the card doesn't move as it lands.
+func TestPlaceholderUntilFirstWord(t *testing.T) {
+	p, h, tt := testPanel(t, nil)
+	p.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	tt.Frame()
+	tt.Frame()
+	if _, ok := tt.Find("Translating"); !ok {
+		t.Fatalf("no placeholder in %q", tt.Texts())
+	}
+	waiting := h.height
+	p.append("你好")
+	tt.Frame()
+	tt.Frame()
+	if _, ok := tt.Find("Translating"); ok {
+		t.Error("the placeholder stayed after the first word")
+	}
+	if h.height != waiting {
+		t.Errorf("the card went from %d to %d as the first word landed", waiting, h.height)
 	}
 }

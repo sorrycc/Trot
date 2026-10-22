@@ -65,8 +65,9 @@ type settingsView struct {
 	fitted    int
 	resize    func(height int)
 	// paneShown and testShown are what the entrances of the pane and of
-	// a test's check last eased in.
-	paneShown, testShown any
+	// a test's check last eased in, and tabPopped the pane whose tab's
+	// icon last popped.
+	paneShown, testShown, tabPopped any
 	// system is what General shows of the system, read at most once a
 	// second rather than in every frame.
 	system    systemState
@@ -156,8 +157,12 @@ func (v *settingsView) tabs(c *ui.Context) {
 					tab.Background(tab.AnimateColor("fill", fill, tabAnim))
 					pressScale(tab, tab.Pressed())
 					tab.Children(func() {
-						ic := ui.Icon(c, paneIcons[i]).FontSize(20)
+						ic := ui.Icon(c.Key("icon"), paneIcons[i]).FontSize(20)
 						ic.TextColor(ic.AnimateColor("color", color, tabAnim))
+						// The icon of the tab picked pops, as a tap on it.
+						if on {
+							pop(ic, &v.tabPopped, v.pane)
+						}
 						text := t.Text
 						if on {
 							text = t.Accent

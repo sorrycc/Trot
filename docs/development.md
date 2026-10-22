@@ -47,7 +47,7 @@ sleep 4; screencapture -o -l$(cat /tmp/panel.png.id) docs/images/panel.png
 
 `go test ./...` covers language detection, the two-language rule and the swap, shortcut parsing, display and the migration of old ones, settings and the import of the old user defaults, the joining of screenshot lines into paragraphs, the HTTP helpers, base URL tidying, error messages, the service language codes, the services against a test server, Mon's client, the settings sync merge against a fake account, crash reports, the selection reader against a fake system, and the panel and the controller, headless with MyGo's tester. The tests of `internal/mac` call the real frameworks: Vision reads text MyGo drew, and one test writes the clipboard and puts it back, which `-short` skips.
 
-`TROT_SHOTS=<dir> go test -run TestShots ./cmd/trot` draws the panel's states, light and dark, into `<dir>`.
+`TROT_SHOTS=<dir> go test -run Shots ./cmd/trot` draws the panel's states and each pane of Settings, light and dark, into `<dir>`.
 
 ## Continuous integration
 

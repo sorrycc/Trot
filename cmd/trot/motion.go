@@ -32,6 +32,17 @@ var (
 	settingsResize = 0.2
 	// swap replaces an icon or a line of text, as copy's check does.
 	swap = ui.ContentTransition{}
+	// popAnim brings an icon that confirms something, as copy's check, up
+	// from a little smaller, overshooting once.
+	popAnim = ui.Animation{Spring: ui.SpringOptions{Duration: 350 * time.Millisecond, Bounce: 0.45}}
+	// accessory brings a button that a state adds, as Speak once the
+	// translation is done, in from smaller as it fades in, and takes it
+	// out the same way; the buttons beside it slide over to make room.
+	accessory = ui.ElementTransition{Position: true, Duration: 180 * time.Millisecond,
+		Enter: &ui.Motion{Scale: 0.6}, Exit: &ui.Motion{Scale: 0.6}}
+	// resizing lets a chip grow and shrink to its text, as Auto becomes
+	// the language detected, and slide along as its neighbor does.
+	resizing = ui.ElementTransition{Position: true, Size: true, Duration: 180 * time.Millisecond}
 )
 
 // entrance eases el in, rising rise DIPs as it fades in, whenever current
@@ -70,5 +81,18 @@ func shake(el ui.Element, shown *any, current any) {
 	}
 	if k := el.AnimateTo("shake", 0, shakeAnim); k != 0 {
 		el.Translate(5*k, 0)
+	}
+}
+
+// pop scales el up from 70%, springing past its size and back, once for
+// each new thing el shows, as current differs from what *shown holds: a
+// check pops in as it confirms.
+func pop(el ui.Element, shown *any, current any) {
+	if *shown != current {
+		*shown = current
+		el.Jump("pop", 0.7)
+	}
+	if k := el.AnimateTo("pop", 1, popAnim); k != 1 {
+		el.Scale(k, k)
 	}
 }

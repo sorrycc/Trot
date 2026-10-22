@@ -41,6 +41,9 @@ type panelWindow struct {
 	area     mygo.Rectangle
 	stop     func() // the click monitor
 	shownGen int
+	// reshadow casts the window's shadow again once the card stops
+	// growing: one timer, pushed back by each growth of a stream.
+	reshadow *time.Timer
 	// quitting lets the window close, which quitting closes every window
 	// to do.
 	quitting bool
@@ -164,14 +167,18 @@ func (w *panelWindow) fit(height int) {
 	mac.AnimateFrame(h, float64(b.X), float64(y), panelWidth, float64(height), d)
 	// The window's shadow is cast for the old shape; once the card has
 	// grown into the new one, it is cast again to match.
-	gen := w.shownGen
-	time.AfterFunc(time.Duration((d+0.02)*float64(time.Second)), func() {
-		mygo.RunOnMain(func() {
-			if gen == w.shownGen && w.win.IsVisible() {
-				mac.InvalidateShadow(h)
-			}
+	after := time.Duration((d + 0.02) * float64(time.Second))
+	if w.reshadow == nil {
+		w.reshadow = time.AfterFunc(after, func() {
+			mygo.RunOnMain(func() {
+				if w.win.IsVisible() && !w.fading {
+					mac.InvalidateShadow(h)
+				}
+			})
 		})
-	})
+	} else {
+		w.reshadow.Reset(after)
+	}
 }
 
 func (w *panelWindow) dismiss() {

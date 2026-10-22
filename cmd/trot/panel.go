@@ -140,8 +140,15 @@ type panel struct {
 	presented, results                  int
 	cardShown, resultShown, noticeShown any
 	arriving                            bool
-	// errorShaken is the error that last shook.
-	errorShaken any
+	// errorShaken is the error that last shook, and copyPopped the copy
+	// whose check last popped in.
+	errorShaken, copyPopped any
+	// leaving is a hint that typing took away, folding up as it fades;
+	// leavingShown is the one that last started to, and noticeHeight how
+	// tall the notice was in the last frame it showed.
+	leaving      *notice
+	leavingShown any
+	noticeHeight float32
 }
 
 // inputHint is the footer of input mode, which shows as keys.
@@ -544,11 +551,11 @@ func (p *panel) header(c *ui.Context) {
 			if p.pinned {
 				icon, tip, color = iconPinFilled, "Close When Clicking Elsewhere (⌘P)", t.Accent
 			}
-			if p.iconButton(c, "pin", icon, tip, color).Clicked() {
+			if p.iconButton(c, "pin", icon, tip, color, nil, nil).Clicked() {
 				p.pinned = !p.pinned
 			}
 		}
-		if p.iconButton(c, "close", iconClose, "Close (Escape)", t.TextMuted).Clicked() {
+		if p.iconButton(c, "close", iconClose, "Close (Escape)", t.TextMuted, nil, nil).Clicked() {
 			p.close()
 		}
 	})
@@ -579,13 +586,15 @@ func (p *panel) chip(c *ui.Context, which string, content func()) ui.Element {
 		chev.Rotate(chev.AnimateTo("turn", turn, turnAnim))
 	})
 	b.OnClick(func() { p.showMenu(which) })
-	return b
+	return b.Transition(resizing)
 }
 
 // iconButton draws its fill only under the mouse, as an accessory button
 // does. id keeps it the same button as its icon and tip change, so the
-// new icon replaces the old one in place.
-func (p *panel) iconButton(c *ui.Context, id string, icon *ui.SVG, tip string, color ui.Color) ui.Element {
+// new icon replaces the old one in place. Its icon pops in once for each
+// new popWith, which *popped keeps; a nil popped or popWith leaves it
+// still.
+func (p *panel) iconButton(c *ui.Context, id string, icon *ui.SVG, tip string, color ui.Color, popped *any, popWith any) ui.Element {
 	t := c.Theme()
 	b := ui.ButtonBase(c.Key(id)).Size(22, 22).Center().Radius(6).Label(tip).Tooltip(tip)
 	alpha := float32(0)
@@ -599,6 +608,13 @@ func (p *panel) iconButton(c *ui.Context, id string, icon *ui.SVG, tip string, c
 	b.Children(func() {
 		ic := ui.Icon(c.Key("icon"), icon).FontSize(13).ContentTransition(swap)
 		ic.TextColor(ic.AnimateColor("color", color, hoverAnim))
+		switch {
+		case popped == nil:
+		case popWith == nil:
+			*popped = nil
+		default:
+			pop(ic, popped, popWith)
+		}
 	})
 	return b
 }
@@ -628,6 +644,9 @@ func (p *panel) body(c *ui.Context) {
 	hasResult := p.streaming || p.result != ""
 	showResult := !p.reading && (hasResult || (p.mode == modeResult && !p.showsError))
 	showNotice := p.notice != nil && !p.reading
+	if p.leaving != nil && (showNotice || hasResult || p.reading) {
+		p.leaving = nil
+	}
 	if showResult || showNotice {
 		rule(c)
 	}
@@ -635,7 +654,10 @@ func (p *panel) body(c *ui.Context) {
 		p.resultView(c, room*0.5, &sel)
 	}
 	if showNotice {
-		p.noticeView(c, *p.notice)
+		p.noticeView(c, p.notice)
+	}
+	if p.leaving != nil {
+		p.noticeLeaving(c)
 	}
 	if p.mode == modeResult {
 		p.selected = strings.Join(sel, "\n")
@@ -666,6 +688,7 @@ func (p *panel) inputArea(c *ui.Context, cap float32) {
 		// result below, so it reads as primary again.
 		p.sourceGrey = false
 		if p.notice != nil && !p.showsError {
+			p.leaving = p.notice
 			p.notice = nil
 		}
 	}
@@ -697,6 +720,13 @@ func (p *panel) resultView(c *ui.Context, cap float32, sel *[]string) {
 		if p.target.RightToLeft() {
 			box.Direction(ui.RightToLeft)
 		}
+		// Before the first word, a line's worth of placeholder shimmers
+		// where the translation will start, at the height of its first
+		// line, so the card doesn't move as the word lands.
+		if p.streaming && p.result == "" {
+			p.placeholder(c)
+			return
+		}
 		// One paragraph per line: a chunk arriving then shapes only the
 		// last line again, not the whole translation. A blank line is a
 		// line's height of space before the next.
@@ -723,6 +753,36 @@ func (p *panel) resultView(c *ui.Context, cap float32, sel *[]string) {
 	})
 }
 
+// placeholder is a rounded bar a line of the translation high, with a
+// band of light sweeping across it while the translation is on its way.
+// Reduce Motion keeps the bar still.
+func (p *panel) placeholder(c *ui.Context) {
+	t := c.Theme()
+	ui.Row(c.Key("placeholder")).Height(lineStep).AlignItems(ui.Center).Label("Translating").Children(func() {
+		bar := ui.Box(c.Key("bar")).WidthPercent(64).Height(10).Radius(5).Clip().Background(t.Text.Alpha(0.08))
+		if c.Preferences().ReduceMotion {
+			return
+		}
+		phase := bar.Loop("shimmer", 1400*time.Millisecond, ui.EaseInOut)
+		band := float32(shimmerBand)
+		x := -band + (bar.LayoutBounds().W+band)*float32(phase)
+		bar.Children(func() {
+			// Lighter than the bar: white over light, the text over dark.
+			glow := ui.RGBA(255, 255, 255, 0.8)
+			if t.Dark {
+				glow = t.Text.Alpha(0.1)
+			}
+			// The band is two halves, brightening to its middle and
+			// fading after.
+			ui.Box(c).Absolute().Top(0).Bottom(0).Left(x).Width(band/2).Gradient(glow.Alpha(0), glow, 90)
+			ui.Box(c).Absolute().Top(0).Bottom(0).Left(x+band/2).Width(band/2).Gradient(glow, glow.Alpha(0), 90)
+		})
+	})
+}
+
+// shimmerBand is how wide the placeholder's band of light is, in DIPs.
+const shimmerBand = 90
+
 // lineStep is the height of a line of the translation.
 const lineStep = 15 * 1.4
 
@@ -746,7 +806,7 @@ func (p *panel) caret(c *ui.Context) {
 	el.TextColor(t.Accent.Alpha(alpha)).FontWeight(700)
 }
 
-func (p *panel) noticeView(c *ui.Context, n notice) {
+func (p *panel) noticeView(c *ui.Context, n *notice) {
 	t := c.Theme()
 	icon, tintColor, fill, border := iconInfo, t.Warning, t.Text.Alpha(0.05), t.Text.Alpha(0.06)
 	if n.isError {
@@ -755,14 +815,17 @@ func (p *panel) noticeView(c *ui.Context, n notice) {
 	box := ui.Column(c.Key("notice")).Padding(10, 12).Radius(10).Background(fill).Border(1, border)
 	// A notice shown with the panel comes in with the card.
 	if p.arriving {
-		p.noticeShown = p.notice
+		p.noticeShown = n
 	}
-	entrance(box, &p.noticeShown, p.notice, 6)
+	entrance(box, &p.noticeShown, n, 6)
+	if n == p.notice {
+		p.noticeHeight = box.LayoutBounds().H
+	}
 	box.Children(func() {
 		content := ui.Column(c.Key("content")).Gap(8)
 		// An error shakes its head as it comes in.
 		if n.isError {
-			shake(content, &p.errorShaken, p.notice)
+			shake(content, &p.errorShaken, n)
 		}
 		content.Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
@@ -777,6 +840,28 @@ func (p *panel) noticeView(c *ui.Context, n notice) {
 				})
 			}
 		})
+	})
+}
+
+// noticeLeaving folds up the hint typing took away as it fades, the rule
+// above it with it, so what is under it slides up rather than jumping.
+// The card's gap before it closes as it goes.
+func (p *panel) noticeLeaving(c *ui.Context) {
+	n := p.leaving
+	wrap := ui.Column(c.Key("leaving")).Gap(10).Clip().Unselectable()
+	if p.leavingShown != n {
+		p.leavingShown = n
+		wrap.Jump("out", 1)
+	}
+	k := wrap.AnimateTo("out", 0, enterAnim)
+	wrap.Height((p.noticeHeight+11)*k).Margin(-10*(1-k), 0, 0, 0).Opacity(k)
+	if k <= 0 {
+		p.leaving = nil
+		return
+	}
+	wrap.Children(func() {
+		rule(c)
+		p.noticeView(c, n)
 	})
 }
 
@@ -806,6 +891,7 @@ func (p *panel) footer(c *ui.Context) {
 		if copied && !p.streaming {
 			color = t.Success
 		}
+		color = status.AnimateColor("color", color, hoverAnim)
 		// While waiting, the status breathes, so the panel never looks
 		// stuck.
 		if (p.reading || p.streaming) && !c.Preferences().ReduceMotion {
@@ -818,17 +904,20 @@ func (p *panel) footer(c *ui.Context) {
 			if p.speaking() {
 				icon, tip, color = iconStop, "Stop Speaking", t.Accent
 			}
-			if p.iconButton(c, "speak", icon, tip, color).Clicked() {
+			if p.iconButton(c, "speak", icon, tip, color, nil, nil).Transition(accessory).Clicked() {
 				p.toggleSpeech()
 			}
 		}
 		if showCopy {
 			icon, color := iconCopy, t.TextMuted
+			// The check pops in for each copy; the copy icon comes back
+			// still.
+			var popWith any
 			if since := time.Since(p.copiedAt); since < copiedFor {
-				icon, color = iconCheck, t.Success
+				icon, color, popWith = iconCheck, t.Success, p.copiedAt
 				c.After(copiedFor - since)
 			}
-			if p.iconButton(c, "copy", icon, "Copy Translation (⌘C)", color).Clicked() {
+			if p.iconButton(c, "copy", icon, "Copy Translation (⌘C)", color, &p.copyPopped, popWith).Transition(accessory).Clicked() {
 				p.copyResult(c)
 			}
 		}
@@ -849,12 +938,15 @@ func keyHints(c *ui.Context) {
 	})
 }
 
-// keycap is a key drawn as a small rounded cap.
-func keycap(c *ui.Context, key string) {
+// keycap is a key drawn as a small rounded cap, in muted text.
+func keycap(c *ui.Context, key string) { keycapIn(c, key, c.Theme().TextMuted) }
+
+// keycapIn is a keycap with its key in color.
+func keycapIn(c *ui.Context, key string, color ui.Color) {
 	t := c.Theme()
-	ui.Box(c).MinWidth(18).Height(18).Padding(0, 4).Center().Radius(5).
+	ui.Box(c).Shrink(0).MinWidth(18).Height(18).Padding(0, 4).Center().Radius(5).
 		Background(t.Text.Alpha(0.06)).Border(1, t.Text.Alpha(0.1)).Children(func() {
-		ui.Text(c, key).FontSize(11).FontWeight(500).TextColor(t.TextMuted)
+		ui.Text(c, key).FontSize(11).FontWeight(500).TextColor(color)
 	})
 }
 

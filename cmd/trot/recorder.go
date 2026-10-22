@@ -1,6 +1,10 @@
 package main
 
 import (
+	"math"
+	"strings"
+	"time"
+
 	"github.com/egoist/mygo/ui"
 
 	"trot/internal/shortcut"
@@ -23,6 +27,20 @@ var keyNames = map[ui.Key]string{
 	ui.KeyPageDown: "PageDown", ui.KeyLeft: "Left", ui.KeyRight: "Right", ui.KeyUp: "Up", ui.KeyDown: "Down",
 	ui.KeyF1: "F1", ui.KeyF2: "F2", ui.KeyF3: "F3", ui.KeyF4: "F4", ui.KeyF5: "F5", ui.KeyF6: "F6",
 	ui.KeyF7: "F7", ui.KeyF8: "F8", ui.KeyF9: "F9", ui.KeyF10: "F10", ui.KeyF11: "F11", ui.KeyF12: "F12",
+}
+
+// keysOf is a shortcut's keys, one for each modifier and one for the key:
+// ⌥D is ⌥ and D.
+func keysOf(s shortcut.Shortcut) []string {
+	mods := []rune(s.Modifiers())
+	keys := make([]string, 0, len(mods)+1)
+	for _, m := range mods {
+		keys = append(keys, string(m))
+	}
+	if key := strings.TrimPrefix(s.Display(), s.Modifiers()); key != "" {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // shortcutOf is the combination a key press types, by the key's place.
@@ -51,7 +69,7 @@ type recorder struct {
 func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.Shortcut, ok bool,
 	record func(*shortcut.Shortcut), onRecording func(bool)) ui.Element {
 	t := c.Theme()
-	b := ui.ButtonBase(c).MinWidth(128).Height(24).Padding(0, 10).Center().Radius(6).Focusable()
+	b := ui.ButtonBase(c).MinWidth(156).Height(24).Padding(0, 10).Center().Radius(6).Focusable()
 	set := func(on bool) {
 		if r.recording != on {
 			r.recording = on
@@ -89,14 +107,17 @@ func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.S
 		}
 	}
 	var text string
+	var caps []string
 	color, fill, border := t.Text, t.Surface, t.Border
 	if b.Hovered() {
 		fill = t.SurfaceHover
 	}
 	switch {
 	case r.recording:
-		fill, border = t.Accent, t.Accent
-		color = t.AccentText
+		// A soft wash of the accent, under an edge that breathes while it
+		// waits for the keys.
+		fill, border = t.Accent.Alpha(0.12), t.Accent
+		color = t.Accent
 		held := c.Modifiers()
 		mods := shortcut.Shortcut{Ctrl: held&ui.Ctrl != 0, Alt: held&ui.Alt != 0,
 			Shift: held&ui.Shift != 0, Cmd: held&ui.Super != 0}.Modifiers()
@@ -107,6 +128,7 @@ func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.S
 		b.Label("Recording a shortcut for " + label)
 	case ok:
 		text = current.Display()
+		caps = keysOf(current)
 		b.Label(label + " shortcut " + text)
 	default:
 		text = "None"
@@ -114,9 +136,23 @@ func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.S
 		b.Label("No shortcut for " + label)
 	}
 	// The button turns to the accent as it starts listening, and back.
-	b.Background(b.AnimateColor("fill", fill, hoverAnim)).Border(1, b.AnimateColor("border", border, hoverAnim))
+	border = b.AnimateColor("border", border, hoverAnim)
+	if r.recording && !c.Preferences().ReduceMotion {
+		phase := b.Loop("listen", 1200*time.Millisecond, ui.Linear)
+		border = border.Alpha(0.45 + 0.55*float32(0.5+0.5*math.Cos(2*math.Pi*float64(phase))))
+	}
+	b.Background(b.AnimateColor("fill", fill, hoverAnim)).Border(1, border)
 	pressScale(b, b.Pressed())
 	b.Children(func() {
+		// A shortcut shows as its keys, as the panel's hints do.
+		if caps != nil {
+			ui.Row(c.Key("caps")).Gap(3).AlignItems(ui.Center).Children(func() {
+				for i, k := range caps {
+					keycapIn(c.Key(i), k, t.Text)
+				}
+			})
+			return
+		}
 		label := ui.Text(c.Key("text"), text).FontSize(13).SingleLine().ContentTransition(swap)
 		label.TextColor(label.AnimateColor("color", color, hoverAnim))
 	})

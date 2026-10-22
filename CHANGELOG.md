@@ -49,6 +49,19 @@ needs a `## <version>` section here, or its build fails.
 - In the panel, the input hints show as keys, Copy says Copied in the
   footer for a moment, an error shakes as it comes in, and a pinned panel's
   edge takes the accent color.
+- In the panel, Speak scales and fades in as a translation finishes, copy's
+  check pops in for each copy, and the chips grow and shrink smoothly to
+  their text, as Auto becomes the language detected.
+- Until the first word of a translation arrives, a line of placeholder
+  with a band of light sweeping across it holds its place, at the height
+  of the first line, so the panel doesn't move as the word lands.
+- A hint in the panel that typing takes away fades as it folds up, so the
+  keys under it slide up rather than jump.
+- Settings shows each shortcut as its keys, as keycaps. A shortcut being
+  recorded takes a soft wash of the accent under an edge that breathes
+  until the keys are pressed, and the icon of the tab picked pops.
+- The panel casts its shadow again once, after a translation stops
+  growing, rather than once for every line that streams in.
 
 ## 0.5.0
 
