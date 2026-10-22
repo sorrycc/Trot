@@ -45,7 +45,7 @@ func TestSettingsTabsFade(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 	tt.Frame()
 	clear := tt.Image().RGBAAt(x, y)
-	if v.pane != 2 || !tt.HasText("Translate Selection") {
+	if v.pane != 2 || !tt.HasText("Translate selection") {
 		t.Fatalf("pane %d, texts %q", v.pane, tt.Texts())
 	}
 	if picked.R >= clear.R || caught && !(picked.R < fading.R && fading.R < clear.R) {

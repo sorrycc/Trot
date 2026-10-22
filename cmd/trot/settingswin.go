@@ -68,10 +68,15 @@ type settingsView struct {
 	// a test's check last eased in, and tabPopped the pane whose tab's
 	// icon last popped.
 	paneShown, testShown, tabPopped any
+	// testPopped is the test whose check last popped in.
+	testPopped any
 	// system is what General shows of the system, read at most once a
 	// second rather than in every frame.
 	system    systemState
 	checkedAt time.Time
+	// trustPopped and recordPopped are true once a permission's check has
+	// shown: it pops in as a grant arrives, not as General first shows.
+	trustPopped, recordPopped any
 }
 
 // systemState is what macOS says of Trot: the permissions it has and
@@ -85,8 +90,12 @@ type systemState struct {
 // databases, which hovering a control in General need not repeat.
 func (v *settingsView) systemNow() systemState {
 	if time.Since(v.checkedAt) >= time.Second {
+		first := v.checkedAt.IsZero()
 		v.checkedAt = time.Now()
 		v.system = systemState{trusted: mac.IsTrusted(), recording: mac.ScreenCaptureAllowed(), atLogin: mygo.App.OpenAtLogin()}
+		if first {
+			v.trustPopped, v.recordPopped = granted(v.system.trusted), granted(v.system.recording)
+		}
 	}
 	return v.system
 }
@@ -185,11 +194,22 @@ func labelColumn(c *ui.Context) {
 	gap := c.Theme().Space(3)
 	widest := []string{"Second language", "Open Trot at login", "Screen Recording", "Test translation"}
 	for _, act := range shortcut.Actions {
-		widest = append(widest, strings.TrimSuffix(act.DisplayName(), "…"))
+		widest = append(widest, shortcutLabel(act))
 	}
 	for i, label := range widest {
 		ui.Field(c.Key(i), label, func() {}).Height(0).Margin(0, 0, -gap, 0).Invisible()
 	}
+}
+
+// shortcutLabel is act's name as a label of Settings, in sentence case as
+// the other labels are: "Translate selection" for the menu's "Translate
+// Selection…".
+func shortcutLabel(act shortcut.Action) string {
+	first, rest, _ := strings.Cut(strings.TrimSuffix(act.DisplayName(), "…"), " ")
+	if rest == "" {
+		return first
+	}
+	return first + " " + strings.ToLower(rest)
 }
 
 // note is a description under a row.
@@ -238,10 +258,10 @@ func (v *settingsView) general(c *ui.Context) {
 			}
 		}).Error(v.loginErr)
 		ui.Field(c, "Accessibility", func() {
-			permission(c, sys.trusted, mac.AccessibilitySettingsURL)
+			permission(c, sys.trusted, &v.trustPopped, mac.AccessibilitySettingsURL)
 		}).Description("Reading the selection in other apps needs it.")
 		ui.Field(c, "Screen Recording", func() {
-			permission(c, sys.recording, mac.ScreenCaptureSettingsURL)
+			permission(c, sys.recording, &v.recordPopped, mac.ScreenCaptureSettingsURL)
 		}).Description("Translating screenshots needs it. macOS reports a grant only after Trot is opened again.")
 		section(c)
 		crashes := s.SendsCrashReports()
@@ -265,14 +285,27 @@ func section(c *ui.Context) {
 	ui.Box(c).Height(1).AlignSelf(ui.Stretch).Margin(2, 0).Background(c.Theme().Text.Alpha(0.07))
 }
 
-func permission(c *ui.Context, granted bool, url string) {
+// granted is what a permission's popped holds: true once granted.
+func granted(ok bool) any {
+	if ok {
+		return true
+	}
+	return nil
+}
+
+// permission shows whether Trot has a permission, with a button to its
+// pane of System Settings while it hasn't. The check pops in as the grant
+// arrives, which *popped keeps.
+func permission(c *ui.Context, ok bool, popped *any, url string) {
 	t := c.Theme()
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		if granted {
-			ui.Icon(c, iconCheck).FontSize(14).TextColor(t.Success)
+		if ok {
+			ic := ui.Icon(c.Key("granted"), iconCheck).FontSize(14).TextColor(t.Success)
+			pop(ic, popped, true)
 			ui.Text(c, "Granted").FontSize(13)
 			return
 		}
+		*popped = nil
 		ui.Icon(c, iconAlert).FontSize(14).TextColor(t.Warning)
 		ui.Text(c, "Not granted").FontSize(13).TextColor(t.TextMuted).MarginEnd(2)
 		if ui.Button(c, "Open System Settings…").FontSize(12).Clicked() {
@@ -326,13 +359,16 @@ func (v *settingsView) services(c *ui.Context) {
 		}
 		if k.NeedsKey() {
 			ui.Field(c, "API key", func() {
-				ui.Column(c).Gap(6).Children(func() {
+				// The note goes right under the field, as the other rows'
+				// do, and the link to a key after it.
+				ui.Column(c).Gap(4).Children(func() {
 					if ui.TextInput(c.Key(string(k)+"key"), &v.apiKey).Password().Placeholder("Required").Changed() {
 						s.SetAPIKey(k, v.apiKey)
 					}
+					note(c, keyNote(k))
 					ui.Link(c, "Get an API key", k.KeyPage()).FontSize(12)
 				})
-			}).Description(keyNote(k))
+			})
 		}
 		if k.HasModel() {
 			f := ui.Field(c, "Model", func() {
@@ -358,7 +394,8 @@ func (v *settingsView) services(c *ui.Context) {
 					ok := ui.Row(c.Key("works")).Gap(6).AlignItems(ui.Center)
 					entrance(ok, &v.testShown, v.testResult, 4)
 					ok.Children(func() {
-						ui.Icon(c, iconCheck).FontSize(14).TextColor(c.Theme().Success)
+						ic := ui.Icon(c.Key("check"), iconCheck).FontSize(14).TextColor(c.Theme().Success)
+						pop(ic, &v.testPopped, v.testResult)
 						ui.Text(c, "Works").FontSize(13)
 					})
 				}
@@ -449,7 +486,7 @@ func serviceNote(k service.Kind) string {
 }
 
 func keyNote(k service.Kind) string {
-	return "Kept in Trot's settings file, never sent anywhere but " + k.DisplayName() + "."
+	return "Saved on this Mac, and sent only to " + k.DisplayName() + "."
 }
 
 // endpoint is the URL requests of k go to.
@@ -503,7 +540,7 @@ func (v *settingsView) shortcuts(c *ui.Context) {
 	ui.Form(c, func() {
 		labelColumn(c)
 		for _, act := range shortcut.Actions {
-			name := strings.TrimSuffix(act.DisplayName(), "…")
+			name := shortcutLabel(act)
 			current, ok := s.Shortcut(act)
 			f := ui.Field(c, name, func() {
 				ui.Row(c).Gap(6).Children(func() {
@@ -519,9 +556,11 @@ func (v *settingsView) shortcuts(c *ui.Context) {
 					}
 					reset.Background(reset.AnimateColor("fill", fill, hoverAnim))
 					pressScale(reset, reset.Pressed())
+					// It shows only while there is a default to go back to,
+					// fading in and out in its place.
 					color := t.TextMuted
 					if !s.ShortcutIsCustom(act) {
-						color = color.Alpha(0.4)
+						color = color.Alpha(0)
 					}
 					reset.Children(func() {
 						ic := ui.Icon(c, iconReset).FontSize(13)
@@ -536,9 +575,12 @@ func (v *settingsView) shortcuts(c *ui.Context) {
 				f.Error(err)
 			}
 		}
+		// The note lines up under the shortcuts, as a row's description.
+		ui.Field(c, "", func() {
+			note(c, "Click a shortcut, then press a combination with ⌘, ⌥ or ⌃. Delete clears it. "+
+				"The shortcuts work in every app, without the Accessibility permission.")
+		})
 	})
-	note(c, "Click a shortcut, then press a combination with ⌘, ⌥ or ⌃. Delete clears it. "+
-		"The shortcuts work in every app, without the Accessibility permission.")
 }
 
 func (v *settingsView) about(c *ui.Context) {
@@ -562,7 +604,7 @@ func (v *settingsView) about(c *ui.Context) {
 		}
 		ui.Text(c, version).FontSize(12).TextColor(t.TextMuted).Selectable()
 		ui.Text(c, "Translates selected text, typed text and screenshots in a floating panel.").
-			FontSize(13).TextAlign(ui.Center).MaxWidth(360).Margin(6, 0, 0)
+			FontSize(13).TextAlign(ui.Center).MaxWidth(440).Margin(6, 0, 0)
 		if ui.Button(c, "Check for Updates…").FontSize(12).Margin(6, 0, 0).Clicked() {
 			updater.CheckForUpdates()
 		}

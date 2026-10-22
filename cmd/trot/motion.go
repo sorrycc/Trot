@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -19,6 +20,9 @@ var (
 	// enterAnim brings in what appears: the panel's card, a result, a
 	// notice, a Settings pane.
 	enterAnim = ui.Animation{Duration: 220 * time.Millisecond}
+	// exitAnim sinks the panel's card back as the window fades out: as
+	// long as the fade, so the two end together.
+	exitAnim = ui.Animation{Duration: 120 * time.Millisecond}
 	// pressAnim shrinks a button a little as it is pressed, and lets it
 	// spring back.
 	pressAnim = ui.Animation{Spring: ui.SpringOptions{Duration: 250 * time.Millisecond, Bounce: 0.3}}
@@ -57,6 +61,27 @@ func entrance(el ui.Element, shown *any, current any, rise float32) {
 	if k := el.AnimateTo("in", 1, enterAnim); k < 1 {
 		el.Opacity(k).Translate(0, rise*(1-k))
 	}
+}
+
+// What runs while Trot waits draws fewer frames than Loop, which draws
+// every frame of a 120 Hz display: a pulse thirty a second, smooth at its
+// slow pace, and the placeholder's sweeping band sixty.
+const (
+	pulseFrame = time.Second / 30
+	sweepFrame = time.Second / 60
+)
+
+// cycle is how far through period the clock is, from 0 to 1, starting
+// over every period, and asks for the frame after frame.
+func cycle(c *ui.Context, period, frame time.Duration) float32 {
+	c.After(frame)
+	return float32(time.Now().UnixNano()%int64(period)) / float32(period)
+}
+
+// pulse goes from 1 down to 0 and back up once every period, easing in
+// and out.
+func pulse(c *ui.Context, period time.Duration) float32 {
+	return float32(0.5 + 0.5*math.Cos(2*math.Pi*float64(cycle(c, period, pulseFrame))))
 }
 
 // pressScale shrinks a pressed button to 94% around its center, springing

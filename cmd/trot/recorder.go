@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"strings"
 	"time"
 
@@ -138,8 +137,7 @@ func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.S
 	// The button turns to the accent as it starts listening, and back.
 	border = b.AnimateColor("border", border, hoverAnim)
 	if r.recording && !c.Preferences().ReduceMotion {
-		phase := b.Loop("listen", 1200*time.Millisecond, ui.Linear)
-		border = border.Alpha(0.45 + 0.55*float32(0.5+0.5*math.Cos(2*math.Pi*float64(phase))))
+		border = border.Alpha(0.45 + 0.55*pulse(c, 1200*time.Millisecond))
 	}
 	b.Background(b.AnimateColor("fill", fill, hoverAnim)).Border(1, border)
 	pressScale(b, b.Pressed())

@@ -275,9 +275,9 @@ func TestABlankLineKeepsItsSpace(t *testing.T) {
 	p.finish("done")
 	tt.Frame()
 	tt.Frame()
-	// A blank line adds a line's height between the two.
-	if got := h.height - tight; got < lineStep-1 || got > lineStep+1 {
-		t.Errorf("a blank line added %d DIPs, want %v", got, lineStep)
+	// A blank line adds half a line's height between the two.
+	if got := float32(h.height - tight); got < paragraphGap-1 || got > paragraphGap+1 {
+		t.Errorf("a blank line added %v DIPs, want %v", got, paragraphGap)
 	}
 	for _, want := range []string{"一", "二"} {
 		if !tt.HasText(want) {
@@ -356,6 +356,38 @@ func TestAPinnedPanelsEdgeTakesTheAccent(t *testing.T) {
 	after := tt.Image().RGBAAt(panelWidth/2, 0)
 	if !p.pinned || after.B <= after.R || after == before {
 		t.Errorf("edge %v, then %v pinned", before, after)
+	}
+}
+
+func TestTheCardSinksAsThePanelCloses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits for the animation")
+	}
+	p, h, tt := testPanel(t, nil)
+	p.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	p.append("你好")
+	p.finish("done")
+	tt.Frame()
+	time.Sleep(300 * time.Millisecond)
+	tt.Frame()
+	open, _ := tt.Find("你好")
+	p.close()
+	tt.Frame()
+	time.Sleep(200 * time.Millisecond)
+	tt.Frame()
+	closing, _ := tt.Find("你好")
+	if h.shown || closing.Y-open.Y < 1 {
+		t.Errorf("the card stayed at y %.1f as it closed, from %.1f", closing.Y, open.Y)
+	}
+	// Shown again, it rises back into place.
+	p.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	p.append("你好")
+	p.finish("done")
+	tt.Frame()
+	time.Sleep(300 * time.Millisecond)
+	tt.Frame()
+	if again, _ := tt.Find("你好"); again.Y != open.Y {
+		t.Errorf("shown again at y %.1f, not %.1f", again.Y, open.Y)
 	}
 }
 
@@ -526,6 +558,11 @@ func TestShots(t *testing.T) {
 				p.append("第一段文字，用来检查段落之间的距离。\n\n第二段文字，紧接着一个空行。\n第二段的第二行。")
 				p.finish("0.9 s · gpt-4o-mini")
 			},
+			"long": func(p *panel) {
+				p.begin("Several screens.", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+				p.append(strings.Repeat("敏捷的棕色狐狸跳过了那只懒狗。这是一段很长的译文，用来检查滚动。\n\n", 20))
+				p.finish("3.4 s · gpt-4o-mini")
+			},
 			"reading": func(p *panel) { p.beginReading("Reading the selection…", mygo.Point{}, false) },
 			"pinned": func(p *panel) {
 				p.begin("The quick brown fox jumps over the lazy dog.", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
@@ -546,6 +583,8 @@ func TestShots(t *testing.T) {
 			tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 			setUp(p)
 			tt.Frame()
+			// Colors and icons still crossfade under Reduce Motion.
+			time.Sleep(400 * time.Millisecond)
 			tt.Frame()
 			tt.SetSize(panelWidth, h.height)
 			tt.SetScale(2)

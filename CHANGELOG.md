@@ -62,6 +62,32 @@ needs a `## <version>` section here, or its build fails.
   until the keys are pressed, and the icon of the tab picked pops.
 - The panel casts its shadow again once, after a translation stops
   growing, rather than once for every line that streams in.
+- The panel's card sinks back a little as the panel fades out, as it
+  rises in as the panel appears. The pin pops in as the panel is pinned,
+  and Stop glows and dims while the translation is read aloud.
+- An error's button in the panel is the default button, in the accent,
+  as Return presses it.
+- A translation taller than the panel shows a hairline under it while
+  more of it is below, which fades as the end scrolls into view, and the
+  service chip crossfades to the service picked.
+- A blank line between paragraphs of a translation leaves half a line of
+  space rather than a whole one, the card has a little more room above
+  and below, and the chips stay in place in input mode, where the pin
+  doesn't show.
+- In Settings, Test's check pops in once a test translation works, and a
+  permission's check pops in as macOS grants it.
+- The panel takes about half the processor while a translation streams in
+  or Trot waits for its first word: the breathing status, the caret, Stop
+  and a shortcut being recorded pulse at thirty frames a second, and the
+  placeholder's band of light sweeps at sixty, not at every frame of the
+  display.
+- On Settings > Shortcuts the names are in sentence case, as the other
+  labels are, the note lines up under the shortcuts, and a shortcut's
+  reset button shows only once it differs from the default. About's
+  description fits on one line.
+- On Settings > Services the API key's note sits right under the field,
+  as the other rows' notes do, with Get an API key after it, and says in
+  one line that the key is saved on this Mac and sent only to the service.
 
 ## 0.5.0
 

@@ -149,6 +149,10 @@ type panel struct {
 	leaving      *notice
 	leavingShown any
 	noticeHeight float32
+	// closing is true while the panel fades out, as the card sinks a
+	// little; pinPopped is the pin whose icon last popped in.
+	closing   bool
+	pinPopped any
 }
 
 // inputHint is the footer of input mode, which shows as keys.
@@ -320,6 +324,7 @@ func (p *panel) endStreaming() {
 }
 
 func (p *panel) present(point mygo.Point, key bool) {
+	p.closing = false
 	if !p.host.visible() {
 		p.presented++
 	}
@@ -341,6 +346,9 @@ func (p *panel) dismiss(notify bool) {
 	p.pinned = false
 	if notify && p.onClose != nil {
 		p.onClose()
+	}
+	if p.host.visible() {
+		p.closing = true
 	}
 	p.host.dismiss()
 }
@@ -483,10 +491,18 @@ func (p *panel) view(c *ui.Context) {
 		p.announcement = ""
 	}
 
-	card := ui.Column(c.Key("card")).Width(panelWidth).Shrink(0).Padding(12, panelInset).Gap(10).DragWindow()
-	// The card settles into place as the window fades in.
+	card := ui.Column(c.Key("card")).Width(panelWidth).Shrink(0).Padding(14, panelInset).Gap(10).DragWindow()
+	// The card settles into place as the window fades in, and sinks back
+	// a little as it fades out.
 	p.arriving = p.cardShown != p.presented
-	entrance(card, &p.cardShown, p.presented, 4)
+	if p.closing {
+		if k := card.AnimateTo("out", 1, exitAnim); k > 0 {
+			card.Translate(0, 4*k).Scale(1-0.02*k, 1-0.02*k)
+		}
+	} else {
+		card.Jump("out", 0)
+		entrance(card, &p.cardShown, p.presented, 4)
+	}
 	card.Children(func() {
 		p.header(c)
 		p.body(c)
@@ -543,17 +559,23 @@ func (p *panel) header(c *ui.Context) {
 		p.langChip = lc.Bounds()
 		ui.Spacer(c)
 		sc := p.chip(c, "service", func() {
-			ui.Text(c, p.service.ShortName()).TextColor(t.Text)
+			ui.Text(c.Key("name"), p.service.ShortName()).TextColor(t.Text).ContentTransition(swap)
 		}).Label("Service: " + p.service.DisplayName()).Tooltip("Translation service (⌘1 – ⌘5)").MarginEnd(4)
 		p.serviceChip = sc.Bounds()
 		if p.mode != modeInput {
 			icon, tip, color := iconPin, "Keep Open (⌘P)", t.TextMuted
+			// The filled pin pops in as the panel is pinned.
+			var popWith any
 			if p.pinned {
-				icon, tip, color = iconPinFilled, "Close When Clicking Elsewhere (⌘P)", t.Accent
+				icon, tip, color, popWith = iconPinFilled, "Close When Clicking Elsewhere (⌘P)", t.Accent, true
 			}
-			if p.iconButton(c, "pin", icon, tip, color, nil, nil).Clicked() {
+			if p.iconButton(c, "pin", icon, tip, color, &p.pinPopped, popWith).Clicked() {
 				p.pinned = !p.pinned
 			}
+		} else {
+			// Typed text keeps the panel open anyway; the pin's place stays,
+			// so the chips don't move between the modes.
+			ui.Box(c).Size(22, 22).Shrink(0)
 		}
 		if p.iconButton(c, "close", iconClose, "Close (Escape)", t.TextMuted, nil, nil).Clicked() {
 			p.close()
@@ -708,50 +730,74 @@ func (p *panel) resultView(c *ui.Context, cap float32, sel *[]string) {
 	if p.streaming && p.resultScroll.Y >= p.resultScroll.MaxY-4 {
 		p.resultScroll.Y = math.MaxFloat32
 	}
-	scroll := ui.Scroll(c.Key("result")).MaxHeight(cap).TrackScroll(&p.resultScroll)
+	wrap := ui.Column(c.Key("result"))
 	// A new translation rises in; one shown with the panel comes in with
 	// the card.
 	if p.arriving {
 		p.resultShown = p.results
 	}
-	entrance(scroll, &p.resultShown, p.results, 6)
-	scroll.Children(func() {
-		box := ui.Column(c).Selectable().Lang(string(p.target))
-		if p.target.RightToLeft() {
-			box.Direction(ui.RightToLeft)
-		}
-		// Before the first word, a line's worth of placeholder shimmers
-		// where the translation will start, at the height of its first
-		// line, so the card doesn't move as the word lands.
-		if p.streaming && p.result == "" {
-			p.placeholder(c)
-			return
-		}
-		// One paragraph per line: a chunk arriving then shapes only the
-		// last line again, not the whole translation. A blank line is a
-		// line's height of space before the next.
-		lines := strings.Split(p.result, "\n")
-		box.Children(func() {
-			space := float32(0)
-			for i, line := range lines {
-				last := i == len(lines)-1
-				if line == "" && !last {
-					space += lineStep
-					continue
-				}
-				para := ui.RichText(c.Key(i)).FontSize(15).LineHeight(1.4).TextColor(t.Text).Margin(space, 0, 0, 0)
-				space = 0
-				para.Children(func() {
-					ui.Text(c, line)
-					if p.streaming && last {
-						p.caret(c)
-					}
-				})
+	entrance(wrap, &p.resultShown, p.results, 6)
+	wrap.Children(func() {
+		// Whole lines: the edge of a long translation falls between
+		// lines, not through one.
+		cap = float32(math.Floor(float64(cap/lineStep))) * lineStep
+		ui.Scroll(c.Key("scroll")).MaxHeight(cap).TrackScroll(&p.resultScroll).Children(func() {
+			box := ui.Column(c).Selectable().Lang(string(p.target))
+			if p.target.RightToLeft() {
+				box.Direction(ui.RightToLeft)
 			}
+			// Before the first word, a line's worth of placeholder shimmers
+			// where the translation will start, at the height of its first
+			// line, so the card doesn't move as the word lands.
+			if p.streaming && p.result == "" {
+				p.placeholder(c)
+				return
+			}
+			// One paragraph per line: a chunk arriving then shapes only the
+			// last line again, not the whole translation. A blank line is
+			// half a line's height of space before the next.
+			lines := strings.Split(p.result, "\n")
+			box.Children(func() {
+				space := float32(0)
+				for i, line := range lines {
+					last := i == len(lines)-1
+					if line == "" && !last {
+						space += paragraphGap
+						continue
+					}
+					para := ui.RichText(c.Key(i)).FontSize(15).LineHeight(1.4).TextColor(t.Text).Margin(space, 0, 0, 0)
+					space = 0
+					para.Children(func() {
+						ui.Text(c, line)
+						if p.streaming && last {
+							p.caret(c)
+						}
+					})
+				}
+			})
+			*sel = append(selectedStrings(box.SelectedTexts()), *sel...)
 		})
-		*sel = append(selectedStrings(box.SelectedTexts()), *sel...)
+		p.moreBelow(c)
 	})
 }
+
+// moreBelow is a hairline under a translation taller than the panel,
+// while some of it is below: the line cut there reads as more to scroll
+// to. It fades as the end scrolls into view, and sits between the
+// translation and the footer without taking room. A fade over the text
+// would need the color behind it, which the material blurs from the
+// windows under the panel.
+func (p *panel) moreBelow(c *ui.Context) {
+	more := c.Theme().Text.Alpha(0)
+	if sc := p.resultScroll; sc.MaxY > 0 && sc.Y < sc.MaxY-1 {
+		more = c.Theme().Text.Alpha(0.12)
+	}
+	edge := ui.Box(c.Key("more")).Height(1).Shrink(0).AlignSelf(ui.Stretch).Margin(4, 0, -5, 0)
+	edge.Background(edge.AnimateColor("fill", more, hoverAnim))
+}
+
+// paragraphGap is the space a blank line leaves between two paragraphs.
+const paragraphGap = lineStep / 2
 
 // placeholder is a rounded bar a line of the translation high, with a
 // band of light sweeping across it while the translation is on its way.
@@ -763,9 +809,9 @@ func (p *panel) placeholder(c *ui.Context) {
 		if c.Preferences().ReduceMotion {
 			return
 		}
-		phase := bar.Loop("shimmer", 1400*time.Millisecond, ui.EaseInOut)
+		phase := ui.EaseInOut(cycle(c, 1400*time.Millisecond, sweepFrame))
 		band := float32(shimmerBand)
-		x := -band + (bar.LayoutBounds().W+band)*float32(phase)
+		x := -band + (bar.LayoutBounds().W+band)*phase
 		bar.Children(func() {
 			// Lighter than the bar: white over light, the text over dark.
 			glow := ui.RGBA(255, 255, 255, 0.8)
@@ -798,8 +844,7 @@ func (p *panel) caret(c *ui.Context) {
 	alpha := float32(1)
 	el := ui.Text(c, caretText).Unselectable()
 	if quiet && !c.Preferences().ReduceMotion {
-		phase := el.Loop("pulse", time.Second, ui.Linear)
-		alpha = 0.35 + 0.65*float32(0.5+0.5*math.Cos(2*math.Pi*float64(phase)))
+		alpha = 0.35 + 0.65*pulse(c, time.Second)
 	} else if !quiet {
 		c.After(500*time.Millisecond - time.Since(p.lastChunk))
 	}
@@ -834,7 +879,13 @@ func (p *panel) noticeView(c *ui.Context, n *notice) {
 			})
 			if n.action != nil {
 				ui.Row(c).PaddingStart(23).Children(func() {
-					if ui.Button(c, n.action.label).FontSize(12).Clicked() {
+					// In result mode Return presses the button, so it is the
+					// default button, in the accent, as in a macOS alert.
+					b := ui.Button
+					if p.mode == modeResult {
+						b = ui.PrimaryButton
+					}
+					if b(c, n.action.label).FontSize(12).Clicked() {
 						n.action.run()
 					}
 				})
@@ -895,16 +946,20 @@ func (p *panel) footer(c *ui.Context) {
 		// While waiting, the status breathes, so the panel never looks
 		// stuck.
 		if (p.reading || p.streaming) && !c.Preferences().ReduceMotion {
-			phase := status.Loop("breathe", 1600*time.Millisecond, ui.Linear)
-			color = color.Alpha(0.55 + 0.45*float32(0.5+0.5*math.Cos(2*math.Pi*float64(phase))))
+			color = color.Alpha(0.55 + 0.45*pulse(c, 1600*time.Millisecond))
 		}
 		status.TextColor(color)
 		if showSpeak {
 			icon, tip, color := iconSpeaker, "Speak Translation", t.TextMuted
+			glow := float32(1)
 			if p.speaking() {
 				icon, tip, color = iconStop, "Stop Speaking", t.Accent
+				// Stop glows and dims while the voice reads.
+				if !c.Preferences().ReduceMotion {
+					glow = 0.6 + 0.4*pulse(c, 1200*time.Millisecond)
+				}
 			}
-			if p.iconButton(c, "speak", icon, tip, color, nil, nil).Transition(accessory).Clicked() {
+			if p.iconButton(c, "speak", icon, tip, color, nil, nil).Transition(accessory).Opacity(glow).Clicked() {
 				p.toggleSpeech()
 			}
 		}
