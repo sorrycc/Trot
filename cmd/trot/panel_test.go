@@ -93,8 +93,12 @@ func TestResultShowsSourceTranslationAndFooter(t *testing.T) {
 	if tt.Clipboard() != "你好" {
 		t.Errorf("clipboard %q", tt.Clipboard())
 	}
-	if got := tt.Announcements(); len(got) == 0 || got[len(got)-1] != "你好" {
+	// The translation is read out as it finishes, then the copy.
+	if got := tt.Announcements(); len(got) < 2 || got[len(got)-2] != "你好" || got[len(got)-1] != "Copied" {
 		t.Errorf("announcements %q", got)
+	}
+	if !tt.HasText("Copied") {
+		t.Errorf("no Copied in %q", tt.Texts())
 	}
 }
 
@@ -235,6 +239,102 @@ func TestStoppedStreamKeepsItsText(t *testing.T) {
 	tt.Frame()
 	if !h.shown || !tt.HasText("Stopped") || p.streaming {
 		t.Errorf("texts %q", tt.Texts())
+	}
+}
+
+func TestABlankLineKeepsItsSpace(t *testing.T) {
+	p, h, tt := testPanel(t, nil)
+	p.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	p.append("一\n二")
+	p.finish("done")
+	tt.Frame()
+	tight := h.height
+	p.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	p.append("一\n\n二")
+	p.finish("done")
+	tt.Frame()
+	tt.Frame()
+	// A blank line adds a line's height between the two.
+	if got := h.height - tight; got < lineStep-1 || got > lineStep+1 {
+		t.Errorf("a blank line added %d DIPs, want %v", got, lineStep)
+	}
+	for _, want := range []string{"一", "二"} {
+		if !tt.HasText(want) {
+			t.Errorf("no %q in %q", want, tt.Texts())
+		}
+	}
+}
+
+func TestFlushDelayGrowsWithTheLine(t *testing.T) {
+	if flushDelay(100) != 16*time.Millisecond || flushDelay(1000) != 33*time.Millisecond || flushDelay(5000) != 50*time.Millisecond {
+		t.Errorf("delays %v %v %v", flushDelay(100), flushDelay(1000), flushDelay(5000))
+	}
+	s := &stream{scheduled: true}
+	s.receive(service.Chunk{Text: "abc"})
+	s.receive(service.Chunk{Text: "de\nfg"})
+	if s.line != 2 {
+		t.Errorf("line %d, want 2", s.line)
+	}
+	s.receive(service.Chunk{Text: "hij"})
+	if s.line != 5 {
+		t.Errorf("line %d, want 5", s.line)
+	}
+}
+
+func TestAnErrorShakesAndSettles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits for the animation")
+	}
+	p, _, tt := testPanel(t, nil)
+	p.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	tt.Frame()
+	time.Sleep(300 * time.Millisecond)
+	tt.Frame()
+	const msg = "The API key was rejected (HTTP 401)."
+	shownAt := time.Now()
+	p.showError(msg, nil)
+	tt.Frame()
+	start, _ := tt.Find(msg)
+	// A busy machine can take the start of the shake to draw it.
+	caught := time.Since(shownAt) < 50*time.Millisecond
+	time.Sleep(time.Second)
+	tt.Frame()
+	end, _ := tt.Find(msg)
+	if caught && start.X-end.X < 2 {
+		t.Errorf("the error didn't start to the side: x %.1f, then %.1f", start.X, end.X)
+	}
+	// With Reduce Motion it is in place at once.
+	p2, _, tt2 := testPanel(t, nil)
+	tt2.SetPreferences(ui.Preferences{ReduceMotion: true})
+	p2.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	p2.showError(msg, nil)
+	tt2.Frame()
+	still, _ := tt2.Find(msg)
+	if d := still.X - end.X; d > 0.5 || d < -0.5 {
+		t.Errorf("settled at x %.1f, without motion at %.1f", end.X, still.X)
+	}
+}
+
+func TestAPinnedPanelsEdgeTakesTheAccent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits for the animation")
+	}
+	p, _, tt := testPanel(t, nil)
+	tt.SetSize(panelWidth, 160)
+	p.begin("Hello", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+	p.append("你好")
+	p.finish("done")
+	tt.Frame()
+	time.Sleep(300 * time.Millisecond)
+	tt.Frame()
+	before := tt.Image().RGBAAt(panelWidth/2, 0)
+	tt.Key(ui.Cmd, ui.KeyP)
+	tt.Frame()
+	time.Sleep(400 * time.Millisecond)
+	tt.Frame()
+	after := tt.Image().RGBAAt(panelWidth/2, 0)
+	if !p.pinned || after.B <= after.R || after == before {
+		t.Errorf("edge %v, then %v pinned", before, after)
 	}
 }
 
@@ -406,6 +506,13 @@ func TestShots(t *testing.T) {
 				p.finish("0.9 s · gpt-4o-mini")
 			},
 			"reading": func(p *panel) { p.beginReading("Reading the selection…", mygo.Point{}, false) },
+			"pinned": func(p *panel) {
+				p.begin("The quick brown fox jumps over the lazy dog.", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+				p.append("敏捷的棕色狐狸跳过了那只懒狗。")
+				p.finish("1.2 s · gpt-4o-mini")
+				p.pinned = true
+				p.copiedAt = time.Now()
+			},
 			"arabic": func(p *panel) {
 				p.begin("Hello, how are you?", lang.English, lang.Arabic, service.Claude, mygo.Point{})
 				p.append("مرحبا، كيف حالك؟")

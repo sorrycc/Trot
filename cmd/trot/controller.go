@@ -301,6 +301,22 @@ type stream struct {
 	thinking  bool
 	scheduled bool
 	received  string // read once the stream ends
+	// line is how many bytes the line being streamed has so far.
+	line int
+}
+
+// flushDelay is how long the pieces of a line of n bytes gather before
+// the panel draws them. The panel lays out the line being streamed again
+// for each batch, which takes longer the longer it is, so a long line is
+// drawn less often: laying out a line of 4,800 bytes takes some 2 ms.
+func flushDelay(n int) time.Duration {
+	switch {
+	case n < 600:
+		return 16 * time.Millisecond
+	case n < 2400:
+		return 33 * time.Millisecond
+	}
+	return 50 * time.Millisecond
 }
 
 func (s *stream) receive(c service.Chunk) {
@@ -310,14 +326,20 @@ func (s *stream) receive(c service.Chunk) {
 	} else {
 		s.pending += c.Text
 		s.received += c.Text
+		if i := strings.LastIndexByte(c.Text, '\n'); i >= 0 {
+			s.line = len(c.Text) - i - 1
+		} else {
+			s.line += len(c.Text)
+		}
 	}
 	if s.scheduled {
 		s.mu.Unlock()
 		return
 	}
 	s.scheduled = true
+	delay := flushDelay(s.line)
 	s.mu.Unlock()
-	time.AfterFunc(16*time.Millisecond, func() { s.t.post(s.flush) })
+	time.AfterFunc(delay, func() { s.t.post(s.flush) })
 }
 
 // flush runs on the main thread.

@@ -35,6 +35,20 @@ needs a `## <version>` section here, or its build fails.
 - A long translation of several paragraphs streams in with about a third
   of the work per frame, as only its last paragraph is laid out again, and
   About's icon is decoded when About first shows rather than at launch.
+- Settings has a toolbar of icons for its panes, as macOS Settings windows
+  do, which crossfades from one pane's tab to the next, and General groups
+  its rows into languages, the system and crash reports. A permission not
+  granted shows a warning sign, and About has Check for Updates….
+- The labels and controls of Settings stay in place from pane to pane.
+- General reads the permissions and Open at Login once a second instead of
+  in every frame it draws.
+- A translation with line breaks, as a list, streams in with about a
+  thirteenth of the work per frame, as only its last line is laid out
+  again, and a long line streams in batches a little further apart, so it
+  is laid out a half to a third as often.
+- In the panel, the input hints show as keys, Copy says Copied in the
+  footer for a moment, an error shakes as it comes in, and a pinned panel's
+  edge takes the accent color.
 
 ## 0.5.0
 

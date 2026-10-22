@@ -12,6 +12,10 @@ import (
 var (
 	// hoverAnim changes a control's fill under the mouse.
 	hoverAnim = ui.Animation{Duration: 120 * time.Millisecond}
+	// tabAnim crossfades Settings' tabs, from the one picked before to
+	// the one picked now: a little slower than a hover, so it reads as a
+	// move.
+	tabAnim = ui.Animation{Duration: 180 * time.Millisecond}
 	// enterAnim brings in what appears: the panel's card, a result, a
 	// notice, a Settings pane.
 	enterAnim = ui.Animation{Duration: 220 * time.Millisecond}
@@ -20,6 +24,9 @@ var (
 	pressAnim = ui.Animation{Spring: ui.SpringOptions{Duration: 250 * time.Millisecond, Bounce: 0.3}}
 	// turnAnim turns a chevron as its menu opens and closes.
 	turnAnim = ui.Animation{Spring: ui.SpringOptions{Duration: 300 * time.Millisecond}}
+	// shakeAnim settles an error from a nudge to the side, overshooting
+	// a couple of times as a shaken head does.
+	shakeAnim = ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.6}}
 	// settingsResize is how long, in seconds, Settings takes to fit a
 	// pane of another height.
 	settingsResize = 0.2
@@ -50,5 +57,18 @@ func pressScale(b ui.Element, pressed bool) {
 	}
 	if s := b.AnimateTo("press", target, pressAnim); s != 1 {
 		b.Scale(s, s)
+	}
+}
+
+// shake nudges el sideways and lets it spring back, once for each new
+// thing el shows, as current differs from what *shown holds: an error
+// shakes its head.
+func shake(el ui.Element, shown *any, current any) {
+	if *shown != current {
+		*shown = current
+		el.Jump("shake", 1)
+	}
+	if k := el.AnimateTo("shake", 0, shakeAnim); k != 0 {
+		el.Translate(5*k, 0)
 	}
 }

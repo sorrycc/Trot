@@ -140,7 +140,15 @@ type panel struct {
 	presented, results                  int
 	cardShown, resultShown, noticeShown any
 	arriving                            bool
+	// errorShaken is the error that last shook.
+	errorShaken any
 }
+
+// inputHint is the footer of input mode, which shows as keys.
+const inputHint = "↩ Translate   ⇧↩ New line"
+
+// copiedFor is how long the footer says the translation was copied.
+const copiedFor = 1200 * time.Millisecond
 
 func newPanel(s *settings.Settings) *panel {
 	return &panel{s: s, target: s.FirstLanguage(), service: s.Service()}
@@ -190,7 +198,7 @@ func (p *panel) showInput(point mygo.Point, hint string, act *action) {
 	}
 	// Text left grey by its translation is the draft again.
 	p.sourceGrey = false
-	p.status = "↩ Translate   ⇧↩ New line"
+	p.status = inputHint
 	if hint != "" {
 		p.notice = &notice{message: hint, action: act}
 	} else {
@@ -375,6 +383,7 @@ func (p *panel) copyResult(c *ui.Context) {
 	}
 	c.WriteClipboard(p.result)
 	p.copiedAt = time.Now()
+	p.announcement = "Copied"
 }
 
 func (p *panel) toggleSpeech() {
@@ -432,8 +441,12 @@ func tint(t *ui.Theme) ui.Color {
 	return ui.RGBA(255, 255, 255, 0.6)
 }
 
-// edge is the hairline around the card.
-func edge(t *ui.Theme) ui.Color {
+// edge is the hairline around the card, in the accent while the panel is
+// pinned, so a panel that stays open looks it.
+func edge(t *ui.Theme, pinned bool) ui.Color {
+	if pinned {
+		return t.Accent.Alpha(0.45)
+	}
 	if t.Dark {
 		return ui.RGBA(255, 255, 255, 0.1)
 	}
@@ -455,7 +468,8 @@ func (p *panel) view(c *ui.Context) {
 	}
 	// A hairline inside the edge keeps the card crisp over a page of the
 	// same color, as a popover's.
-	c.Root().Radius(panelRadius).Border(1, edge(t))
+	root := c.Root()
+	root.Radius(panelRadius).Border(1, root.AnimateColor("edge", edge(t, p.pinned), enterAnim))
 	p.shortcuts(c)
 	if p.announcement != "" {
 		c.Announce(p.announcement)
@@ -683,16 +697,23 @@ func (p *panel) resultView(c *ui.Context, cap float32, sel *[]string) {
 		if p.target.RightToLeft() {
 			box.Direction(ui.RightToLeft)
 		}
-		// One paragraph per block of text, a blank line apart: a chunk
-		// arriving then shapes only the last paragraph again, not the
-		// whole translation.
-		blocks := strings.Split(p.result, "\n\n")
-		box.Gap(15 * 1.4).Children(func() {
-			for i, block := range blocks {
-				para := ui.RichText(c.Key(i)).FontSize(15).LineHeight(1.4).TextColor(t.Text)
+		// One paragraph per line: a chunk arriving then shapes only the
+		// last line again, not the whole translation. A blank line is a
+		// line's height of space before the next.
+		lines := strings.Split(p.result, "\n")
+		box.Children(func() {
+			space := float32(0)
+			for i, line := range lines {
+				last := i == len(lines)-1
+				if line == "" && !last {
+					space += lineStep
+					continue
+				}
+				para := ui.RichText(c.Key(i)).FontSize(15).LineHeight(1.4).TextColor(t.Text).Margin(space, 0, 0, 0)
+				space = 0
 				para.Children(func() {
-					ui.Text(c, block)
-					if p.streaming && i == len(blocks)-1 {
+					ui.Text(c, line)
+					if p.streaming && last {
 						p.caret(c)
 					}
 				})
@@ -701,6 +722,9 @@ func (p *panel) resultView(c *ui.Context, cap float32, sel *[]string) {
 		*sel = append(selectedStrings(box.SelectedTexts()), *sel...)
 	})
 }
+
+// lineStep is the height of a line of the translation.
+const lineStep = 15 * 1.4
 
 // caretText is the caret: a hair space, then a bar.
 const caretText = "\u200a▏"
@@ -724,28 +748,35 @@ func (p *panel) caret(c *ui.Context) {
 
 func (p *panel) noticeView(c *ui.Context, n notice) {
 	t := c.Theme()
-	icon, tintColor, fill := iconInfo, t.Warning, t.Text.Alpha(0.06)
+	icon, tintColor, fill, border := iconInfo, t.Warning, t.Text.Alpha(0.05), t.Text.Alpha(0.06)
 	if n.isError {
-		icon, tintColor, fill = iconAlert, t.Danger, t.Danger.Alpha(0.12)
+		icon, tintColor, fill, border = iconAlert, t.Danger, t.Danger.Alpha(0.1), t.Danger.Alpha(0.22)
 	}
-	box := ui.Column(c.Key("notice")).Padding(10, 12).Gap(8).Radius(10).Background(fill)
+	box := ui.Column(c.Key("notice")).Padding(10, 12).Radius(10).Background(fill).Border(1, border)
 	// A notice shown with the panel comes in with the card.
 	if p.arriving {
 		p.noticeShown = p.notice
 	}
 	entrance(box, &p.noticeShown, p.notice, 6)
 	box.Children(func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
-			ui.Icon(c, icon).FontSize(15).TextColor(tintColor).Margin(1, 0, 0, 0)
-			ui.Text(c, n.message).FontSize(13).LineHeight(1.35).TextColor(t.Text).Grow(1).Shrink(1).Selectable()
-		})
-		if n.action != nil {
-			ui.Row(c).PaddingStart(23).Children(func() {
-				if ui.Button(c, n.action.label).FontSize(12).Clicked() {
-					n.action.run()
-				}
-			})
+		content := ui.Column(c.Key("content")).Gap(8)
+		// An error shakes its head as it comes in.
+		if n.isError {
+			shake(content, &p.errorShaken, p.notice)
 		}
+		content.Children(func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
+				ui.Icon(c, icon).FontSize(15).TextColor(tintColor).Margin(1, 0, 0, 0)
+				ui.Text(c, n.message).FontSize(13).LineHeight(1.35).TextColor(t.Text).Grow(1).Shrink(1).Selectable()
+			})
+			if n.action != nil {
+				ui.Row(c).PaddingStart(23).Children(func() {
+					if ui.Button(c, n.action.label).FontSize(12).Clicked() {
+						n.action.run()
+					}
+				})
+			}
+		})
 	})
 }
 
@@ -760,9 +791,21 @@ func (p *panel) footer(c *ui.Context) {
 		if p.reading {
 			ui.Spinner(c).Size(12, 12)
 		}
-		status := ui.Text(c.Key("status"), p.status).FontSize(11).FontFeatures("tnum").SingleLine().Grow(1).Shrink(1).
-			Tooltip(p.status).ContentTransition(swap)
+		if p.mode == modeInput && p.status == inputHint {
+			keyHints(c)
+			return
+		}
+		text := p.status
+		copied := time.Since(p.copiedAt) < copiedFor
+		if copied && !p.streaming {
+			text = "Copied"
+		}
+		status := ui.Text(c.Key("status"), text).FontSize(11).FontFeatures("tnum").SingleLine().Grow(1).Shrink(1).
+			Tooltip(text).ContentTransition(swap)
 		color := t.TextMuted
+		if copied && !p.streaming {
+			color = t.Success
+		}
 		// While waiting, the status breathes, so the panel never looks
 		// stuck.
 		if (p.reading || p.streaming) && !c.Preferences().ReduceMotion {
@@ -781,14 +824,37 @@ func (p *panel) footer(c *ui.Context) {
 		}
 		if showCopy {
 			icon, color := iconCopy, t.TextMuted
-			if since := time.Since(p.copiedAt); since < 1200*time.Millisecond {
+			if since := time.Since(p.copiedAt); since < copiedFor {
 				icon, color = iconCheck, t.Success
-				c.After(1200*time.Millisecond - since)
+				c.After(copiedFor - since)
 			}
 			if p.iconButton(c, "copy", icon, "Copy Translation (⌘C)", color).Clicked() {
 				p.copyResult(c)
 			}
 		}
+	})
+}
+
+// keyHints are input mode's keys, Return to translate and Shift-Return
+// for a new line, drawn as keycaps.
+func keyHints(c *ui.Context) {
+	t := c.Theme()
+	ui.Row(c.Key("hints")).Gap(5).AlignItems(ui.Center).Grow(1).
+		Role(ui.RoleGroup).Label("Return translates, Shift-Return starts a new line").Children(func() {
+		keycap(c, "↩")
+		ui.Text(c, "Translate").FontSize(11).TextColor(t.TextMuted).MarginEnd(8)
+		keycap(c, "⇧")
+		keycap(c, "↩")
+		ui.Text(c, "New line").FontSize(11).TextColor(t.TextMuted)
+	})
+}
+
+// keycap is a key drawn as a small rounded cap.
+func keycap(c *ui.Context, key string) {
+	t := c.Theme()
+	ui.Box(c).MinWidth(18).Height(18).Padding(0, 4).Center().Radius(5).
+		Background(t.Text.Alpha(0.06)).Border(1, t.Text.Alpha(0.1)).Children(func() {
+		ui.Text(c, key).FontSize(11).FontWeight(500).TextColor(t.TextMuted)
 	})
 }
 

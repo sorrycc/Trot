@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 
 	"trot/internal/cloudsync"
@@ -38,6 +39,9 @@ const (
 
 var panes = []string{"General", "Services", "Shortcuts", "About"}
 
+// paneIcons are the icons of the panes' tabs.
+var paneIcons = []*ui.SVG{iconGeneral, iconServices, iconKeyboard, iconInfo}
+
 const settingsWidth = 540
 
 // settingsView is the Settings window's content: one pane at a time, each
@@ -63,6 +67,27 @@ type settingsView struct {
 	// paneShown and testShown are what the entrances of the pane and of
 	// a test's check last eased in.
 	paneShown, testShown any
+	// system is what General shows of the system, read at most once a
+	// second rather than in every frame.
+	system    systemState
+	checkedAt time.Time
+}
+
+// systemState is what macOS says of Trot: the permissions it has and
+// whether it opens at login.
+type systemState struct {
+	trusted, recording, atLogin bool
+}
+
+// systemNow reads the system's state again once a second has passed:
+// asking macOS takes a trip to the main thread and the permission
+// databases, which hovering a control in General need not repeat.
+func (v *settingsView) systemNow() systemState {
+	if time.Since(v.checkedAt) >= time.Second {
+		v.checkedAt = time.Now()
+		v.system = systemState{trusted: mac.IsTrusted(), recording: mac.ScreenCaptureAllowed(), atLogin: mygo.App.OpenAtLogin()}
+	}
+	return v.system
 }
 
 func newSettingsView(a *trotApp) *settingsView {
@@ -84,10 +109,8 @@ func (v *settingsView) showPane(name string) {
 func (v *settingsView) view(c *ui.Context) {
 	card := ui.Column(c.Key("settings")).Width(settingsWidth).Shrink(0)
 	card.Children(func() {
-		ui.Row(c).Justify(ui.Center).Padding(14, 20, 6).Children(func() {
-			ui.Segmented(c, &v.pane, panes...).Label("Settings pane")
-		})
-		pane := ui.Column(c.Key(panes[v.pane])).Padding(14, 28, 22).Gap(16)
+		v.tabs(c)
+		pane := ui.Column(c.Key(panes[v.pane])).Padding(18, 28, 24).Gap(16)
 		// A pane picked rises in as the window takes its height.
 		entrance(pane, &v.paneShown, v.pane, 6)
 		pane.Children(func() {
@@ -106,6 +129,61 @@ func (v *settingsView) view(c *ui.Context) {
 	if h := int(math.Ceil(float64(card.LayoutBounds().H))); h > 0 && h != v.fitted && v.resize != nil {
 		v.fitted = h
 		v.resize(h)
+	}
+}
+
+// tabs are the panes as a toolbar of icons over their names, as macOS
+// Settings windows have, over a hairline. The tab picked takes the
+// accent and a soft fill, which fade from one tab to the next.
+func (v *settingsView) tabs(c *ui.Context) {
+	t := c.Theme()
+	ui.Column(c).Children(func() {
+		ui.Row(c).Justify(ui.Center).Padding(10, 20, 8).Children(func() {
+			seg := ui.SegmentedBase(c, &v.pane, len(panes))
+			seg.Track.Gap(2).Label("Settings pane").Children(func() {
+				for i, name := range panes {
+					tab := seg.Segment(i).Width(76).Height(50).Radius(8).Gap(3).Column().Label(name)
+					on := i == v.pane
+					fill, color := t.Text.Alpha(0), t.TextMuted
+					switch {
+					case on:
+						fill, color = t.Text.Alpha(0.07), t.Accent
+					case tab.Pressed():
+						fill = t.Text.Alpha(0.09)
+					case tab.Hovered():
+						fill = t.Text.Alpha(0.045)
+					}
+					tab.Background(tab.AnimateColor("fill", fill, tabAnim))
+					pressScale(tab, tab.Pressed())
+					tab.Children(func() {
+						ic := ui.Icon(c, paneIcons[i]).FontSize(20)
+						ic.TextColor(ic.AnimateColor("color", color, tabAnim))
+						text := t.Text
+						if on {
+							text = t.Accent
+						}
+						label := ui.Text(c, name).FontSize(11).FontWeight(500).SingleLine()
+						label.TextColor(label.AnimateColor("color", text, tabAnim))
+					})
+				}
+			})
+		})
+		ui.Box(c).Height(1).AlignSelf(ui.Stretch).Background(t.Text.Alpha(0.08))
+	})
+}
+
+// labelColumn sizes a form's column of labels to the widest label of
+// every pane, so the labels and controls stay in place as the panes
+// change: it lays out each such label in a row of no height that draws
+// nothing. It goes first in the form.
+func labelColumn(c *ui.Context) {
+	gap := c.Theme().Space(3)
+	widest := []string{"Second language", "Open Trot at login", "Screen Recording", "Test translation"}
+	for _, act := range shortcut.Actions {
+		widest = append(widest, strings.TrimSuffix(act.DisplayName(), "…"))
+	}
+	for i, label := range widest {
+		ui.Field(c.Key(i), label, func() {}).Height(0).Margin(0, 0, -gap, 0).Invisible()
 	}
 }
 
@@ -129,7 +207,9 @@ func (v *settingsView) general(c *ui.Context) {
 		return ""
 	}
 	first, second := s.FirstLanguage().DisplayName(), s.SecondLanguage().DisplayName()
+	sys := v.systemNow()
 	ui.Form(c, func() {
+		labelColumn(c)
 		ui.Field(c, "First language", func() {
 			if ui.Select(c, &first, names).Changed() {
 				s.SetLanguages(byName(first), s.SecondLanguage())
@@ -140,23 +220,25 @@ func (v *settingsView) general(c *ui.Context) {
 				s.SetLanguages(s.FirstLanguage(), byName(second))
 			}
 		}).Description("Text already in the first language is translated into this one.")
-		atLogin := mygo.App.OpenAtLogin()
+		section(c)
+		atLogin := sys.atLogin
 		ui.Field(c, "Open Trot at login", func() {
 			if ui.Switch(c, &atLogin).Changed() {
 				v.loginErr = ""
 				if err := mygo.App.SetOpenAtLogin(atLogin); err != nil {
 					v.loginErr = err.Error()
 				}
+				// Read again in the next frame, not a second late.
+				v.checkedAt = time.Time{}
 			}
 		}).Error(v.loginErr)
-		trusted := mac.IsTrusted()
 		ui.Field(c, "Accessibility", func() {
-			permission(c, trusted, mac.AccessibilitySettingsURL)
+			permission(c, sys.trusted, mac.AccessibilitySettingsURL)
 		}).Description("Reading the selection in other apps needs it.")
-		recording := mac.ScreenCaptureAllowed()
 		ui.Field(c, "Screen Recording", func() {
-			permission(c, recording, mac.ScreenCaptureSettingsURL)
+			permission(c, sys.recording, mac.ScreenCaptureSettingsURL)
 		}).Description("Translating screenshots needs it. macOS reports a grant only after Trot is opened again.")
+		section(c)
 		crashes := s.SendsCrashReports()
 		ui.Field(c, "Crash reports", func() {
 			// The text beside the switch gives the row a baseline, which
@@ -173,15 +255,21 @@ func (v *settingsView) general(c *ui.Context) {
 	c.After(time.Second)
 }
 
+// section is a hairline between groups of a form's rows.
+func section(c *ui.Context) {
+	ui.Box(c).Height(1).AlignSelf(ui.Stretch).Margin(2, 0).Background(c.Theme().Text.Alpha(0.07))
+}
+
 func permission(c *ui.Context, granted bool, url string) {
 	t := c.Theme()
-	ui.Row(c).Gap(10).Children(func() {
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		if granted {
 			ui.Icon(c, iconCheck).FontSize(14).TextColor(t.Success)
 			ui.Text(c, "Granted").FontSize(13)
 			return
 		}
-		ui.Text(c, "Not granted").FontSize(13).TextColor(t.TextMuted)
+		ui.Icon(c, iconAlert).FontSize(14).TextColor(t.Warning)
+		ui.Text(c, "Not granted").FontSize(13).TextColor(t.TextMuted).MarginEnd(2)
 		if ui.Button(c, "Open System Settings…").FontSize(12).Clicked() {
 			mygo.Shell.OpenExternal(url)
 		}
@@ -210,6 +298,7 @@ func (v *settingsView) services(c *ui.Context) {
 	}
 	chosen := k.DisplayName()
 	ui.Form(c, func() {
+		labelColumn(c)
 		ui.Field(c, "Service", func() {
 			if ui.Select(c, &chosen, names).Changed() {
 				for _, kind := range service.Kinds {
@@ -407,6 +496,7 @@ func (v *settingsView) shortcuts(c *ui.Context) {
 	s := v.a.s
 	t := c.Theme()
 	ui.Form(c, func() {
+		labelColumn(c)
 		for _, act := range shortcut.Actions {
 			name := strings.TrimSuffix(act.DisplayName(), "…")
 			current, ok := s.Shortcut(act)
@@ -450,7 +540,15 @@ func (v *settingsView) about(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).AlignItems(ui.Center).Gap(8).Padding(6, 0, 4).Children(func() {
 		if icon := aboutIcon(); icon != nil {
-			ui.Image(c, icon).Size(96, 96)
+			// The icon lifts a little under the mouse.
+			img := ui.Image(c.Key("icon"), icon).Size(96, 96)
+			lift := float32(1)
+			if img.Hovered() {
+				lift = 1.05
+			}
+			if k := img.AnimateTo("lift", lift, pressAnim); k != 1 {
+				img.Scale(k, k)
+			}
 		}
 		ui.Text(c, "Trot").FontSize(20).Bold()
 		version := "Development build"
@@ -460,6 +558,9 @@ func (v *settingsView) about(c *ui.Context) {
 		ui.Text(c, version).FontSize(12).TextColor(t.TextMuted).Selectable()
 		ui.Text(c, "Translates selected text, typed text and screenshots in a floating panel.").
 			FontSize(13).TextAlign(ui.Center).MaxWidth(360).Margin(6, 0, 0)
+		if ui.Button(c, "Check for Updates…").FontSize(12).Margin(6, 0, 0).Clicked() {
+			updater.CheckForUpdates()
+		}
 		ui.Row(c).Gap(16).Margin(6, 0, 0).Children(func() {
 			ui.Link(c, "Homepage", homepage).FontSize(12)
 			ui.Link(c, "Report an Issue", issues).FontSize(12)
