@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -23,10 +24,12 @@ func (e *BadURLError) Error() string {
 }
 
 // HTTPError is a reply with a status other than 2xx, and the service's
-// message.
+// message. RetryAfter is the wait its Retry-After header asks for, 0 for
+// none.
 type HTTPError struct {
-	Code    int
-	Message string
+	Code       int
+	Message    string
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string {
@@ -57,7 +60,36 @@ func (e *NotAStreamError) Error() string {
 	return "The service replied with something other than a translation. Check the base URL."
 }
 
+// LimitError is Mon refusing a translation over the account's limits:
+// its tokens a day or its requests a minute. RetryAfter is how long to
+// wait, 0 when Mon did not say.
+type LimitError struct {
+	RetryAfter time.Duration
+	Message    string
+}
+
+func (e *LimitError) Error() string {
+	switch {
+	case e.RetryAfter > 0 && e.RetryAfter <= 2*time.Minute:
+		secs := int((e.RetryAfter + time.Second - 1) / time.Second)
+		if secs == 1 {
+			return "Too many requests to Mon: try again in 1 second."
+		}
+		return fmt.Sprintf("Too many requests to Mon: try again in %d seconds.", secs)
+	case e.RetryAfter > 0:
+		return "You've used today's tokens on Mon. Try again after " + time.Now().Add(e.RetryAfter).Format("15:04") + "."
+	case e.Message != "":
+		return "Mon's limit is reached: " + e.Message
+	}
+	return "Mon's limit is reached. Try again later."
+}
+
 var (
+	// ErrNotSignedIn is the Mon service used signed out.
+	ErrNotSignedIn = errors.New("Sign in to Mon to translate with it.")
+	// ErrSignedOut is Mon refusing the token, which was signed out
+	// elsewhere, as from the account page.
+	ErrSignedOut = errors.New("You were signed out of Mon. Sign in again to translate with it.")
 	// ErrInvalidResponse is a reply Trot can't read.
 	ErrInvalidResponse = errors.New("The service sent a reply Trot can't read.")
 	// ErrTruncated is a translation the service stopped at its output limit.
@@ -112,7 +144,8 @@ func ErrorMessage(body []byte) string {
 }
 
 // NeedsSettings reports whether Settings can fix the error: a missing or
-// rejected key, a wrong base URL. Google has nothing to set.
+// rejected key, a wrong base URL, a sign-in to Mon. Google has nothing to
+// set.
 func NeedsSettings(err error, k Kind) bool {
 	if k == Google {
 		return false
@@ -122,6 +155,8 @@ func NeedsSettings(err error, k Kind) bool {
 	var ns *NotAStreamError
 	var he *HTTPError
 	switch {
+	case errors.Is(err, ErrNotSignedIn), errors.Is(err, ErrSignedOut):
+		return true
 	case errors.As(err, &mk), errors.As(err, &bu), errors.As(err, &ns):
 		return true
 	case errors.As(err, &he):

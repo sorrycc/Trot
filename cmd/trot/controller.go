@@ -40,6 +40,8 @@ type controller struct {
 	cursor func() mygo.Point
 	// openSettings opens Settings, for errors it can fix.
 	openSettings func()
+	// signedOut forgets the Mon account whose token Mon refused.
+	signedOut func()
 
 	cancel context.CancelFunc
 	// gen counts user actions, so work started for an earlier one, a
@@ -261,6 +263,9 @@ func (t *controller) translate(text string, target lang.Language, point *mygo.Po
 			s.flush()
 			if t.gen != run {
 				return
+			}
+			if errors.Is(err, service.ErrSignedOut) && t.signedOut != nil {
+				t.signedOut()
 			}
 			if err != nil {
 				if ctx.Err() != nil || !t.p.host.visible() {

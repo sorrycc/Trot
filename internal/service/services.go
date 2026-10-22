@@ -135,13 +135,28 @@ func translateClaude(ctx context.Context, c Config, text string, source, target 
 		return err
 	}
 	defer r.Close()
+	// A model that thinks first, as Mon's DeepSeek does, says so once: the
+	// thinking itself is never shown.
+	saidThinking := false
 	err = events(r, func(event map[string]any) error {
 		switch event["type"] {
+		case "content_block_start":
+			block, _ := event["content_block"].(map[string]any)
+			if (block["type"] == "thinking" || block["type"] == "redacted_thinking") && !saidThinking {
+				saidThinking = true
+				emit(Chunk{Thinking: true})
+			}
 		case "content_block_delta":
 			delta, _ := event["delta"].(map[string]any)
-			if delta["type"] == "text_delta" {
+			switch delta["type"] {
+			case "text_delta":
 				if s, ok := delta["text"].(string); ok {
 					emit(Chunk{Text: s})
+				}
+			case "thinking_delta":
+				if !saidThinking {
+					saidThinking = true
+					emit(Chunk{Thinking: true})
 				}
 			}
 		case "message_delta":
@@ -183,6 +198,25 @@ func translateClaude(ctx context.Context, c Config, text string, source, target 
 				return ErrTruncated
 			}
 			return nil
+		}
+	}
+	return err
+}
+
+// translateMon uses Mon's AI gateway, which speaks the Messages API with
+// Mon's access token for a key.
+func translateMon(ctx context.Context, c Config, text string, source, target lang.Language, emit func(Chunk)) error {
+	if c.APIKey == "" {
+		return ErrNotSignedIn
+	}
+	err := translateClaude(ctx, c, text, source, target, emit)
+	var he *HTTPError
+	if errors.As(err, &he) {
+		switch he.Code {
+		case 401:
+			return ErrSignedOut
+		case 429:
+			return &LimitError{RetryAfter: he.RetryAfter, Message: he.Message}
 		}
 	}
 	return err

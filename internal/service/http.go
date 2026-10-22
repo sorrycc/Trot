@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -122,7 +123,11 @@ func post(ctx context.Context, target string, headers map[string]string, body []
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		data, _ := io.ReadAll(io.LimitReader(rc, 16*1024))
 		rc.Close()
-		return nil, &HTTPError{resp.StatusCode, ErrorMessage(data)}
+		he := &HTTPError{Code: resp.StatusCode, Message: ErrorMessage(data)}
+		if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 {
+			he.RetryAfter = time.Duration(secs) * time.Second
+		}
+		return nil, he
 	}
 	return rc, nil
 }

@@ -7,7 +7,7 @@ Trot sits in the menu bar. Three hotkeys open its panel; the menu bar icon offer
 The panel is one floating card. From top to bottom:
 
 - **Language chip**, such as `English → 简体中文`. The left side is the language Trot detected, or Auto, the right the target. Click it, or press ⌘L, to translate into another language.
-- **Service chip**, which switches the service for this and later translations. ⌘1 to ⌘4 pick one without the menu.
+- **Service chip**, which switches the service for this and later translations. ⌘1 to ⌘5 pick one without the menu.
 - **Pin** (⌘P), which keeps the panel open when you click elsewhere. Without it, a click in another app closes the panel.
 - **Close**, also Escape or ⌘W.
 - The **source text** and the **translation**, which streams in as the service produces it. Both are selectable. ⌘C with nothing selected copies the whole translation.
@@ -15,7 +15,7 @@ The panel is one floating card. From top to bottom:
 
 While a translation streams in, the card grows smoothly with the text and an accent-coloured caret marks where the next words will land. The caret stays solid while words arrive and pulses when the stream goes quiet, or before the first word. A translation into Arabic starts from the right.
 
-When a translation fails, a notice in a red-tinted box takes the place of the translation and says why. A missing or rejected key or a wrong base URL comes with an Open Settings button; anything else, such as a network error, with Retry, which runs the same text again with whatever service is active. Return presses the button. A translation the service cut off keeps what arrived, with the notice under it.
+When a translation fails, a notice in a red-tinted box takes the place of the translation and says why. A missing or rejected key, a wrong base URL or Mon signed out comes with an Open Settings button; anything else, such as a network error, with Retry, which runs the same text again with whatever service is active. Return presses the button. A translation the service cut off keeps what arrived, with the notice under it.
 
 Selections longer than 20,000 characters are cut there, and the footer says so.
 
@@ -25,9 +25,17 @@ The panel opens below the mouse, or above it near the bottom of the screen, and 
 
 ## The menu bar
 
-The menu bar icon offers the three actions with their hotkeys, a Service submenu that switches the active service, About, Settings, Check for Updates and Quit.
+The menu bar icon offers the three actions with their hotkeys, a Service submenu that switches the active service, the Mon account, About, Settings, Check for Updates and Quit. Signed out, the account item is **Sign In to Mon…**; signed in, it is your name, with your email, when the settings last synced, **Sync Settings Now**, **Manage Account…** and **Sign Out**.
 
-The first time Trot opens without a key for its service, it opens Settings on the Services pane. After that it starts quietly in the menu bar.
+The first time Trot opens without a sign-in or a key for its service, it opens Settings on the Services pane. A new install starts with the Mon service, so that is where you sign in. After that it starts quietly in the menu bar.
+
+## Your Mon account
+
+[Mon](https://mon.sorrycc.dev) is the account behind sorrycc's apps. Click **Sign In…** in Settings > Services with the Mon service picked, or **Sign In to Mon…** in the menu bar menu. Trot opens Mon's page in your browser and shows a short code: check that the page shows the same one, sign in with GitHub or Google, and approve it. Mon lists Trot under your account with your Mac's name, and you can sign it out there.
+
+Signed in, the Mon service translates through Mon's AI gateway, with no API key. A free account has 500,000 tokens a day and 10 requests a minute; over a limit, the panel says when to try again.
+
+Your settings also sync with the account, a couple of seconds after you change one, and whenever Trot is used or Settings opens, at most every 30 seconds: the languages, the service, the base URLs and models, and the shortcuts. API keys and the sign-in stay on each Mac. A setting changed on two Macs takes the value of the one that syncs last. The first time a Mac that has settings of its own syncs with an account that has some too, Trot asks whose to keep. When Mon can't be reached, Trot tries again, later and later, and Settings says why.
 
 ## Translating the selection (⌥D)
 

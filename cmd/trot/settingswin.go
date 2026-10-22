@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"math"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"trot/internal/cloudsync"
 	"trot/internal/lang"
 	"trot/internal/mac"
 	"trot/internal/service"
@@ -146,6 +148,17 @@ func (v *settingsView) general(c *ui.Context) {
 		ui.Field(c, "Screen Recording", func() {
 			permission(c, recording, mac.ScreenCaptureSettingsURL)
 		}).Description("Translating screenshots needs it. macOS reports a grant only after Trot is opened again.")
+		crashes := s.SendsCrashReports()
+		ui.Field(c, "Crash reports", func() {
+			// The text beside the switch gives the row a baseline, which
+			// the label lines up with.
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+				if ui.Switch(c, &crashes).Label("Send crash reports to Mon").Changed() {
+					s.SetSendsCrashReports(crashes)
+				}
+				ui.Text(c, "Send to Mon").FontSize(13)
+			})
+		}).Description("A crash's report goes at the next launch, anonymously, with your home folder taken out.")
 	})
 	// Permissions change in System Settings, not here.
 	c.After(time.Second)
@@ -198,6 +211,9 @@ func (v *settingsView) services(c *ui.Context) {
 				v.loadFields()
 			}
 		}).Description(serviceNote(k))
+		if k.SignsIn() || v.a.account.signin != nil {
+			v.accountField(c)
+		}
 		if k.HasBaseURL() {
 			ui.Field(c, "Base URL", func() {
 				if ui.TextInput(c.Key(string(k)+"url"), &v.baseURL).Placeholder(k.DefaultBaseURL()).Changed() {
@@ -216,11 +232,14 @@ func (v *settingsView) services(c *ui.Context) {
 			}).Description(keyNote(k))
 		}
 		if k.HasModel() {
-			ui.Field(c, "Model", func() {
+			f := ui.Field(c, "Model", func() {
 				if ui.TextInput(c.Key(string(k)+"model"), &v.model).Placeholder(k.DefaultModel()).Changed() {
 					s.SetModel(k, v.model)
 				}
 			})
+			if k.SignsIn() {
+				f.Description("The models your account can use are listed at " + k.DefaultBaseURL() + "/v1/models.")
+			}
 		}
 		ui.Field(c, "Test translation", func() {
 			ui.Row(c).Gap(10).Children(func() {
@@ -237,6 +256,66 @@ func (v *settingsView) services(c *ui.Context) {
 	})
 }
 
+// accountField is the Mon account: Sign In while signed out, the code to
+// approve while signing in, and the person, with settings sync and Sign
+// Out, once signed in.
+func (v *settingsView) accountField(c *ui.Context) {
+	acct := v.a.account
+	t := c.Theme()
+	note := "Sign in with GitHub or Google. No API key needed, and your settings sync between your Macs."
+	f := ui.Field(c, "Mon account", func() {
+		ui.Column(c).Gap(6).Children(func() {
+			switch si := acct.signin; {
+			case si != nil:
+				ui.Row(c).Gap(10).Children(func() {
+					ui.Spinner(c).Size(16, 16)
+					if si.code == "" {
+						ui.Text(c, "Starting…").FontSize(13).TextColor(t.TextMuted)
+					} else {
+						ui.Text(c, si.code).FontSize(15).Bold().Selectable()
+					}
+					if ui.Button(c, "Cancel").FontSize(12).Clicked() {
+						acct.cancelSignIn()
+					}
+				})
+				if si.url != "" {
+					ui.Link(c, "Open the Sign-In Page Again", si.url).FontSize(12)
+				}
+				note = "Check that the page that opened in your browser shows this code, then approve it."
+			case acct.signedIn():
+				ui.Row(c).Gap(10).Children(func() {
+					ui.Text(c, acct.name()).FontSize(13)
+					if ui.Button(c, "Sign Out").FontSize(12).Clicked() {
+						acct.signOut()
+					}
+				})
+				ui.Row(c).Gap(14).Children(func() {
+					sync := ui.Button(c, "Sync Now").FontSize(12).Disabled(acct.busy > 0)
+					if sync.Clicked() {
+						acct.sync(cloudsync.Ask, true)
+					}
+					ui.Link(c, "Manage Account", service.MonURL()+"/account").FontSize(12)
+				})
+				note = acct.syncStatus()
+				if email := acct.email(); email != "" {
+					note = email + ". " + note
+				}
+				// The time of the last sync reads as words that age.
+				c.After(30 * time.Second)
+			default:
+				ui.Row(c).Children(func() {
+					if ui.Button(c, "Sign In…").Clicked() {
+						acct.signIn()
+					}
+				})
+			}
+		})
+	}).Description(note)
+	if acct.signInErr != "" && acct.signin == nil && !acct.signedIn() {
+		f.Error(acct.signInErr)
+	}
+}
+
 func (v *settingsView) testNote() string {
 	if v.testResult != "" {
 		return "“" + v.testResult + "”"
@@ -246,6 +325,8 @@ func (v *settingsView) testNote() string {
 
 func serviceNote(k service.Kind) string {
 	switch k {
+	case service.Mon:
+		return "Mon's AI gateway, with your Mon account. A free account translates 500,000 tokens a day."
 	case service.OpenAI:
 		return "Any chat completions API: OpenAI, DeepSeek, Qwen, Ollama and others."
 	case service.Claude:
@@ -290,6 +371,9 @@ func (v *settingsView) test() {
 		}
 		win.Update(func() {
 			v.testing = false
+			if errors.Is(err, service.ErrSignedOut) {
+				v.a.account.sessionEnded()
+			}
 			switch {
 			case err != nil:
 				v.testErr = service.Describe(err)

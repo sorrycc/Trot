@@ -1,6 +1,7 @@
 // Package settings keeps every setting the Settings window shows in a JSON
-// file. API keys are there too: the keychain would ask for permission after
-// every rebuild, since an ad-hoc signed app has a new identity each time.
+// file. API keys and Mon's access token are there too: the keychain would
+// ask for permission after every rebuild, since an ad-hoc signed app has a
+// new identity each time.
 //
 // The keys are those Trot before 0.5 kept in its user defaults, such as
 // "firstLanguage" and "service.openAI.apiKey", so a launch argument names a
@@ -9,8 +10,10 @@ package settings
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -200,7 +203,27 @@ func (s *Settings) Service() service.Kind {
 	if k, ok := service.ParseKind(s.get("service")); ok {
 		return k
 	}
-	return service.OpenAI
+	return service.Mon
+}
+
+// monDefaultKey marks settings that know Mon is the default service.
+const monDefaultKey = "monIsDefault"
+
+// KeepOldDefaultService keeps OpenAI Compatible for settings saved before
+// Mon became the default service, which used it without saving it. Fresh
+// settings are marked, so they keep Mon. It runs once, after the import of
+// the legacy settings.
+func (s *Settings) KeepOldDefaultService() {
+	if _, ok := s.Get(monDefaultKey); ok {
+		return
+	}
+	s.mu.Lock()
+	_, hasService := s.values["service"]
+	s.mu.Unlock()
+	if s.Exists() && !hasService {
+		s.SetService(service.OpenAI)
+	}
+	s.SetFlag(monDefaultKey, true)
 }
 
 // SetService makes k the active service.
@@ -249,16 +272,153 @@ func (s *Settings) ActiveBaseURL(k service.Kind) string {
 	return k.DefaultBaseURL()
 }
 
-// Config is the service's settings, as a request takes them.
+// Config is the service's settings, as a request takes them. Mon's key is
+// the account's access token.
 func (s *Settings) Config(k service.Kind) service.Config {
-	return service.Config{BaseURL: s.ActiveBaseURL(k), APIKey: s.APIKey(k), Model: s.ActiveModel(k)}
+	key := s.APIKey(k)
+	if k.SignsIn() {
+		key = s.MonToken()
+	}
+	return service.Config{BaseURL: s.ActiveBaseURL(k), APIKey: key, Model: s.ActiveModel(k)}
 }
 
-// NeedsSetup reports whether the active service still lacks the key it
-// needs, so a translation can't work until Settings has been visited.
+// NeedsSetup reports whether the active service still lacks the key or the
+// sign-in it needs, so a translation can't work until Settings has been
+// visited.
 func (s *Settings) NeedsSetup() bool {
 	k := s.Service()
+	if k.SignsIn() {
+		return s.MonToken() == ""
+	}
 	return k.NeedsKey() && s.APIKey(k) == ""
+}
+
+const monTokenKey = "mon.token"
+
+// MonToken is the access token of the Mon account signed in, "" for none.
+func (s *Settings) MonToken() string { return s.get(monTokenKey) }
+
+// SetMonToken saves the token of the account signed in, "" as signed out.
+func (s *Settings) SetMonToken(token string) { s.set(monTokenKey, token, false) }
+
+const crashReportsKey = "sendCrashReports"
+
+// SendsCrashReports reports whether the reports of Trot's crashes go to
+// Mon, as they do until turned off.
+func (s *Settings) SendsCrashReports() bool {
+	v, ok := s.Get(crashReportsKey)
+	return !ok || parseBool(v)
+}
+
+// SetSendsCrashReports turns crash reports on or off.
+func (s *Settings) SetSendsCrashReports(on bool) {
+	v := "0"
+	if on {
+		v = "1"
+	}
+	s.set(crashReportsKey, v, false)
+}
+
+// IsSynced reports whether settings sync carries the setting of key: the
+// languages, the active service, the services' base URLs and models, and
+// the shortcuts. API keys, the token and what a Mac keeps of its own stay
+// on it.
+func IsSynced(key string) bool {
+	switch key {
+	case "firstLanguage", "secondLanguage", "service":
+		return true
+	}
+	if rest, ok := strings.CutPrefix(key, "service."); ok {
+		return strings.HasSuffix(rest, ".baseURL") || strings.HasSuffix(rest, ".model")
+	}
+	return strings.HasPrefix(key, "shortcut.")
+}
+
+// KnowsSynced reports whether this version of Trot has the synced setting
+// of key: one of a newer Trot's, as of a service it doesn't have, stays as
+// the account has it.
+func KnowsSynced(key string) bool {
+	if !IsSynced(key) {
+		return false
+	}
+	if rest, ok := strings.CutPrefix(key, "service."); ok {
+		kind, _, _ := strings.Cut(rest, ".")
+		_, ok := service.ParseKind(kind)
+		return ok
+	}
+	if name, ok := strings.CutPrefix(key, "shortcut."); ok {
+		return slices.Contains(shortcut.Actions, shortcut.Action(name))
+	}
+	return true
+}
+
+// Synced returns the settings sync carries, as saved: launch arguments
+// override them for this run only, and never sync.
+func (s *Settings) Synced() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.syncedLocked()
+}
+
+func (s *Settings) syncedLocked() map[string]string {
+	out := map[string]string{}
+	for k, v := range s.values {
+		if IsSynced(k) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// ApplySynced makes next the synced settings, unless they changed since
+// they were read as read: then it changes nothing and returns false.
+func (s *Settings) ApplySynced(read, next map[string]string) bool {
+	s.mu.Lock()
+	if !maps.Equal(s.syncedLocked(), read) {
+		s.mu.Unlock()
+		return false
+	}
+	var changed []string
+	for k := range s.values {
+		if _, ok := next[k]; !ok && IsSynced(k) {
+			changed = append(changed, k)
+		}
+	}
+	for k, v := range next {
+		if old, ok := s.values[k]; IsSynced(k) && (!ok || old != v) {
+			changed = append(changed, k)
+		}
+	}
+	for _, k := range changed {
+		if v, ok := next[k]; ok {
+			s.values[k] = v
+		} else {
+			delete(s.values, k)
+		}
+	}
+	listeners := append([]func(string){}, s.listeners...)
+	if len(changed) > 0 {
+		s.saveLocked()
+	}
+	s.mu.Unlock()
+	for _, k := range changed {
+		for _, fn := range listeners {
+			fn(k)
+		}
+	}
+	return true
+}
+
+// IsDefaultSynced reports whether synced is what a first launch has:
+// nothing set but, at most, Mon as the service. A first sync takes the
+// account's over it without asking.
+func IsDefaultSynced(synced map[string]string) bool {
+	for k, v := range synced {
+		if k != "service" || v != string(service.Mon) {
+			return false
+		}
+	}
+	return true
 }
 
 func shortcutKey(a shortcut.Action) string { return "shortcut." + string(a) }

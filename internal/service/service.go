@@ -3,7 +3,9 @@
 package service
 
 import (
+	"cmp"
 	"context"
+	"os"
 	"strings"
 
 	"trot/internal/lang"
@@ -13,14 +15,15 @@ import (
 type Kind string
 
 const (
+	Mon    Kind = "mon"
 	OpenAI Kind = "openAI"
 	Claude Kind = "claude"
 	DeepL  Kind = "deepL"
 	Google Kind = "google"
 )
 
-// Kinds are the services, in the order menus and ⌘1 to ⌘4 list them.
-var Kinds = []Kind{OpenAI, Claude, DeepL, Google}
+// Kinds are the services, in the order menus and ⌘1 to ⌘5 list them.
+var Kinds = []Kind{Mon, OpenAI, Claude, DeepL, Google}
 
 // ParseKind returns the service of a stored name.
 func ParseKind(s string) (Kind, bool) {
@@ -35,6 +38,8 @@ func ParseKind(s string) (Kind, bool) {
 // DisplayName is the service's full name.
 func (k Kind) DisplayName() string {
 	switch k {
+	case Mon:
+		return "Mon"
 	case OpenAI:
 		return "OpenAI Compatible"
 	case Claude:
@@ -56,7 +61,17 @@ func (k Kind) ShortName() string {
 }
 
 // NeedsKey reports whether the service takes an API key.
-func (k Kind) NeedsKey() bool { return k != Google }
+func (k Kind) NeedsKey() bool { return k != Google && k != Mon }
+
+// SignsIn reports whether the service takes a sign-in to Mon in place of
+// a key.
+func (k Kind) SignsIn() bool { return k == Mon }
+
+// MonURL is Mon's, the account behind the Mon service and settings sync,
+// or TROT_MON_URL's, as a Mon on localhost to try it with.
+func MonURL() string {
+	return strings.TrimRight(cmp.Or(os.Getenv("TROT_MON_URL"), "https://mon.sorrycc.dev"), "/")
+}
 
 // KeyPage is where the service hands out keys, "" for none.
 func (k Kind) KeyPage() string {
@@ -75,11 +90,13 @@ func (k Kind) KeyPage() string {
 func (k Kind) HasBaseURL() bool { return k == OpenAI || k == Claude }
 
 // HasModel reports whether the service has models to choose from.
-func (k Kind) HasModel() bool { return k == OpenAI || k == Claude }
+func (k Kind) HasModel() bool { return k == Mon || k == OpenAI || k == Claude }
 
 // DefaultBaseURL is where requests go when none is set.
 func (k Kind) DefaultBaseURL() string {
 	switch k {
+	case Mon:
+		return MonURL() + "/api/v1/ai"
 	case OpenAI:
 		return "https://api.openai.com/v1"
 	case Claude:
@@ -91,6 +108,8 @@ func (k Kind) DefaultBaseURL() string {
 // DefaultModel is the model used when none is set.
 func (k Kind) DefaultModel() string {
 	switch k {
+	case Mon:
+		return "deepseek-flash"
 	case OpenAI:
 		return "gpt-4o-mini"
 	case Claude:
@@ -102,7 +121,7 @@ func (k Kind) DefaultModel() string {
 // Config is a service's settings.
 type Config struct {
 	BaseURL string // tidied, see NormalizeBaseURL
-	APIKey  string
+	APIKey  string // Mon's access token for Mon
 	Model   string
 }
 
@@ -179,6 +198,8 @@ type Chunk struct {
 // done, or it fails.
 func Translate(ctx context.Context, k Kind, c Config, text string, source, target lang.Language, emit func(Chunk)) error {
 	switch k {
+	case Mon:
+		return translateMon(ctx, c, text, source, target, emit)
 	case OpenAI:
 		return translateOpenAI(ctx, c, text, source, target, emit)
 	case Claude:

@@ -16,7 +16,7 @@ func temp(t *testing.T) *Settings {
 
 func TestDefaults(t *testing.T) {
 	s := temp(t)
-	if s.FirstLanguage() != lang.ChineseSimplified || s.SecondLanguage() != lang.English || s.Service() != service.OpenAI {
+	if s.FirstLanguage() != lang.ChineseSimplified || s.SecondLanguage() != lang.English || s.Service() != service.Mon {
 		t.Error("defaults")
 	}
 	if sc, ok := s.Shortcut(shortcut.TranslateSelection); !ok || sc.Display() != "⌥D" {
@@ -85,6 +85,91 @@ func TestNeedsSetup(t *testing.T) {
 	s.SetService(service.Google)
 	if s.NeedsSetup() {
 		t.Error("Google has no key to enter")
+	}
+	s.SetService(service.Mon)
+	if !s.NeedsSetup() {
+		t.Error("Mon needs a sign-in")
+	}
+	s.SetMonToken("mon_x")
+	if s.NeedsSetup() || s.Config(service.Mon).APIKey != "mon_x" {
+		t.Error("signed in")
+	}
+}
+
+func TestKeepOldDefaultService(t *testing.T) {
+	fresh := temp(t)
+	fresh.KeepOldDefaultService()
+	if fresh.Service() != service.Mon {
+		t.Error("a first launch takes Mon")
+	}
+	path := filepath.Join(t.TempDir(), "settings.json")
+	old := Load(path, nil)
+	old.SetFlag("welcomed", true)
+	old.KeepOldDefaultService()
+	if old.Service() != service.OpenAI {
+		t.Error("settings from before Mon keep OpenAI, which they used")
+	}
+	old.SetService(service.Mon)
+	again := Load(path, nil)
+	again.KeepOldDefaultService()
+	if again.Service() != service.Mon {
+		t.Error("it runs once")
+	}
+}
+
+func TestCrashReportsDefaultOn(t *testing.T) {
+	s := temp(t)
+	if !s.SendsCrashReports() {
+		t.Error("on by default")
+	}
+	s.SetSendsCrashReports(false)
+	if s.SendsCrashReports() {
+		t.Error("off")
+	}
+}
+
+func TestSynced(t *testing.T) {
+	for key, want := range map[string]bool{
+		"firstLanguage": true, "service": true, "service.openAI.baseURL": true, "service.mon.model": true,
+		"shortcut.translateInput": true, "service.openAI.apiKey": false, "mon.token": false,
+		"welcomed": false, "sendCrashReports": false,
+	} {
+		if IsSynced(key) != want {
+			t.Errorf("IsSynced(%s)", key)
+		}
+	}
+	if KnowsSynced("service.future.model") || KnowsSynced("shortcut.future") || !KnowsSynced("service.claude.model") {
+		t.Error("KnowsSynced")
+	}
+
+	s := Load(filepath.Join(t.TempDir(), "settings.json"), map[string]string{"service": "google"})
+	s.SetAPIKey(service.OpenAI, "sk")
+	s.SetModel(service.OpenAI, "gpt-x")
+	s.SetShortcut(shortcut.TranslateInput, nil)
+	read := s.Synced()
+	if len(read) != 2 || read["service.openAI.model"] != "gpt-x" || read["shortcut.translateInput"] != "" {
+		t.Errorf("synced %v: no keys, no overrides", read)
+	}
+	var keys []string
+	s.OnChange(func(k string) { keys = append(keys, k) })
+	next := map[string]string{"service.openAI.model": "gpt-y", "firstLanguage": "ja"}
+	if !s.ApplySynced(read, next) {
+		t.Fatal("applies")
+	}
+	if s.Model(service.OpenAI) != "gpt-y" || s.FirstLanguage() != lang.Japanese {
+		t.Error("applied")
+	}
+	if s.ShortcutIsCustom(shortcut.TranslateInput) || s.APIKey(service.OpenAI) != "sk" {
+		t.Error("a synced key the account doesn't have goes, the API key stays")
+	}
+	if len(keys) != 3 {
+		t.Errorf("changed %v", keys)
+	}
+	if s.ApplySynced(read, map[string]string{}) {
+		t.Error("stale: the settings changed since read")
+	}
+	if !IsDefaultSynced(map[string]string{}) || !IsDefaultSynced(map[string]string{"service": "mon"}) || IsDefaultSynced(next) {
+		t.Error("IsDefaultSynced")
 	}
 }
 

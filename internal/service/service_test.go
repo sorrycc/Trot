@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"trot/internal/lang"
 )
@@ -104,8 +105,14 @@ func TestEveryServiceKnowsWhatItNeeds(t *testing.T) {
 	if Google.NeedsKey() || Google.KeyPage() != "" {
 		t.Error("Google needs nothing")
 	}
+	if Mon.NeedsKey() || !Mon.SignsIn() || Mon.KeyPage() != "" || !Mon.HasModel() || Mon.HasBaseURL() {
+		t.Error("Mon signs in instead of taking a key")
+	}
+	if Kinds[0] != Mon {
+		t.Error("Mon comes first, as the default")
+	}
 	for _, k := range Kinds {
-		if k != Google && (!k.NeedsKey() || !strings.HasPrefix(k.KeyPage(), "https://")) {
+		if k != Google && k != Mon && (!k.NeedsKey() || !strings.HasPrefix(k.KeyPage(), "https://")) {
 			t.Errorf("%s key", k)
 		}
 		if k.HasBaseURL() && (!strings.HasPrefix(k.DefaultBaseURL(), "https://") || k.DefaultModel() == "") {
@@ -157,11 +164,11 @@ func TestErrorsReadAsSentences(t *testing.T) {
 		contains string
 	}{
 		{&MissingKeyError{DeepL}, "DeepL needs an API key."},
-		{&HTTPError{401, "bad key"}, "HTTP 401: bad key"},
-		{&HTTPError{503, ""}, "(HTTP 503)"},
-		{&HTTPError{401, ""}, "API key"},
-		{&HTTPError{404, ""}, "base URL"},
-		{&HTTPError{413, ""}, "too long"},
+		{&HTTPError{Code: 401, Message: "bad key"}, "HTTP 401: bad key"},
+		{&HTTPError{Code: 503, Message: ""}, "(HTTP 503)"},
+		{&HTTPError{Code: 401, Message: ""}, "API key"},
+		{&HTTPError{Code: 404, Message: ""}, "base URL"},
+		{&HTTPError{Code: 413, Message: ""}, "too long"},
 		{&NotAStreamError{[]byte("<html>")}, "base URL"},
 	}
 	for _, c := range checks {
@@ -169,7 +176,7 @@ func TestErrorsReadAsSentences(t *testing.T) {
 			t.Errorf("%q lacks %q", c.err.Error(), c.contains)
 		}
 	}
-	if got := (&HTTPError{418, ""}).Error(); got != "HTTP 418" {
+	if got := (&HTTPError{Code: 418, Message: ""}).Error(); got != "HTTP 418" {
 		t.Error(got)
 	}
 	if got := (&NotAStreamError{[]byte(`{"error":{"message":"Not found"}}`)}).Error(); got != "Not found" {
@@ -182,15 +189,17 @@ func TestNeedsSettings(t *testing.T) {
 		err  error
 		kind Kind
 	}{
-		{&MissingKeyError{OpenAI}, OpenAI}, {&HTTPError{401, ""}, Claude},
-		{&HTTPError{404, ""}, OpenAI}, {&NotAStreamError{}, OpenAI},
+		{&MissingKeyError{OpenAI}, OpenAI}, {&HTTPError{Code: 401, Message: ""}, Claude},
+		{&HTTPError{Code: 404, Message: ""}, OpenAI}, {&NotAStreamError{}, OpenAI},
+		{ErrNotSignedIn, Mon}, {ErrSignedOut, Mon},
 	}
 	for _, c := range yes {
 		if !NeedsSettings(c.err, c.kind) {
 			t.Errorf("%v should need settings", c.err)
 		}
 	}
-	if NeedsSettings(&HTTPError{500, ""}, OpenAI) || NeedsSettings(ErrTimedOut, OpenAI) || NeedsSettings(&HTTPError{404, ""}, Google) {
+	if NeedsSettings(&HTTPError{Code: 500, Message: ""}, OpenAI) || NeedsSettings(ErrTimedOut, OpenAI) || NeedsSettings(&HTTPError{Code: 404, Message: ""}, Google) ||
+		NeedsSettings(&LimitError{}, Mon) {
 		t.Error("should not need settings")
 	}
 }
@@ -304,5 +313,51 @@ func TestClaudeStreams(t *testing.T) {
 	}
 	if !strings.Contains(body, `"effort":"low"`) {
 		t.Errorf("Claude 5 should run at low effort: %s", body)
+	}
+}
+
+func TestMonStreams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("x-api-key") {
+		case "revoked":
+			w.WriteHeader(401)
+			w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid token"}}`))
+			return
+		case "busy":
+			w.Header().Set("Retry-After", "20")
+			w.WriteHeader(429)
+			w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`))
+			return
+		}
+		if r.URL.Path != "/api/v1/ai/v1/messages" {
+			w.WriteHeader(404)
+			return
+		}
+		w.Write([]byte("data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"thinking\"}}\n\n" +
+			"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Hmm\"}}\n\n" +
+			"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"你好\"}}\n\n" +
+			"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n"))
+	}))
+	defer srv.Close()
+	translate := func(token string) ([]Chunk, error) {
+		var got []Chunk
+		err := Translate(context.Background(), Mon, Config{BaseURL: srv.URL + "/api/v1/ai", APIKey: token, Model: "deepseek-flash"},
+			"Hello", lang.English, lang.ChineseSimplified, func(c Chunk) { got = append(got, c) })
+		return got, err
+	}
+	got, err := translate("mon_x")
+	if err != nil || len(got) != 2 || !got[0].Thinking || got[1].Text != "你好" {
+		t.Errorf("got %v %v", got, err)
+	}
+	if _, err := translate(""); !errors.Is(err, ErrNotSignedIn) {
+		t.Errorf("signed out: %v", err)
+	}
+	if _, err := translate("revoked"); !errors.Is(err, ErrSignedOut) {
+		t.Errorf("revoked: %v", err)
+	}
+	_, err = translate("busy")
+	var le *LimitError
+	if !errors.As(err, &le) || le.RetryAfter != 20*time.Second || !strings.Contains(err.Error(), "20 seconds") {
+		t.Errorf("limit: %v", err)
 	}
 }

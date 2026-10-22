@@ -16,7 +16,8 @@ Trot is a macOS menu bar app that translates selected text, typed text and scree
 - Type or paste text into the panel and translate it.
 - Translate the text in a screen region, read with Vision.
 - Text in your first language goes into your second; anything else goes into your first.
-- Use any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL or Google.
+- Sign in with a [Mon](https://mon.sorrycc.dev) account and translate with no API key, or use any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL or Google.
+- Signed in, your settings and shortcuts sync between your Macs.
 
 ## Usage
 
@@ -26,7 +27,7 @@ Trot is a macOS menu bar app that translates selected text, typed text and scree
 | ⌥A | Open the panel to type text |
 | ⌥S | Translate a screenshot |
 
-In the panel, ⌘L picks another target language, ⌘1 to ⌘4 switch the service and ⌘P pins the panel. You can change the hotkeys in Settings.
+In the panel, ⌘L picks another target language, ⌘1 to ⌘5 switch the service and ⌘P pins the panel. You can change the hotkeys in Settings.
 
 ## Requirements
 
@@ -42,7 +43,7 @@ go tool mygo build
 open build/darwin-arm64/Trot.app
 ```
 
-Trot updates itself: it checks for a new version once a day, and from **Check for Updates…** in its menu. It runs in the menu bar and has no Dock icon. On first launch macOS asks for Accessibility access, which Trot needs to read the selection in other apps, and Settings opens so you can pick a service and enter its key. macOS asks for Screen Recording access the first time you translate a screenshot.
+Trot updates itself: it checks for a new version once a day, and from **Check for Updates…** in its menu. It runs in the menu bar and has no Dock icon. On first launch macOS asks for Accessibility access, which Trot needs to read the selection in other apps, and Settings opens so you can sign in to Mon, or pick another service and enter its key. macOS asks for Screen Recording access the first time you translate a screenshot.
 
 ## Documentation
 

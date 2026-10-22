@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 
+	"trot/internal/cloudsync"
 	"trot/internal/lang"
 	"trot/internal/mac"
 	"trot/internal/service"
@@ -26,14 +27,16 @@ import (
 var trayPNG []byte
 
 // trotApp is the app: its settings, the panel and the controller behind
-// it, the menu bar icon, the hotkeys and the Settings window.
+// it, the Mon account, the menu bar icon, the hotkeys and the Settings
+// window.
 type trotApp struct {
-	args map[string]string
-	s    *settings.Settings
-	p    *panel
-	pw   *panelWindow
-	ctl  *controller
-	tray *mygo.Tray
+	args    map[string]string
+	s       *settings.Settings
+	p       *panel
+	pw      *panelWindow
+	ctl     *controller
+	account *account
+	tray    *mygo.Tray
 
 	settingsWin  *mygo.Window
 	settingsView *settingsView
@@ -133,6 +136,7 @@ func settingsPath() string {
 func (a *trotApp) ready() {
 	a.s = settings.Load(settingsPath(), overrides(a.args))
 	a.s.ImportLegacy()
+	a.s.KeepOldDefaultService()
 
 	a.p = newPanel(a.s)
 	a.p.newSpeaker = func(onEnd func()) speaker {
@@ -143,6 +147,11 @@ func (a *trotApp) ready() {
 	a.pw = newPanelWindow(a.p, flag(a.args["preview"]))
 	a.ctl = newController(a.s, a.p)
 	a.ctl.openSettings = func() { a.showSettings("Services") }
+	a.account = a.startAccount()
+	a.ctl.signedOut = a.account.sessionEnded
+	if dir, err := mygo.App.Path(mygo.PathUserData); err == nil && a.s.SendsCrashReports() {
+		go sendCrashes(dir)
+	}
 
 	a.setMenu()
 	a.setUpTray()
@@ -230,7 +239,7 @@ func (a *trotApp) setUpTray() {
 }
 
 // rebuildTray sets the menu bar icon's menu: the three actions with their
-// hotkeys, the service, About, Settings and Quit.
+// hotkeys, the service, the Mon account, About, Settings and Quit.
 func (a *trotApp) rebuildTray() {
 	if a.tray == nil {
 		return
@@ -251,6 +260,7 @@ func (a *trotApp) rebuildTray() {
 	items = append(items,
 		mygo.Separator(),
 		&mygo.MenuItem{Label: "Service: " + a.s.Service().ShortName(), Submenu: services},
+		a.accountMenuItem(),
 		mygo.Separator(),
 		&mygo.MenuItem{Label: "About Trot", Click: func(*mygo.MenuItem, *mygo.Window) { a.showSettings("About") }},
 		&mygo.MenuItem{Label: "Settings…", Accelerator: "Cmd+,", Click: func(*mygo.MenuItem, *mygo.Window) { a.showSettings("") }},
@@ -259,6 +269,39 @@ func (a *trotApp) rebuildTray() {
 		&mygo.MenuItem{Label: "Quit Trot", Accelerator: "Cmd+Q", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 	)
 	a.tray.SetMenu(mygo.NewMenu(items))
+}
+
+// accountMenuItem is the Mon account in the menu bar menu: Sign In while
+// signed out, else the person, with settings sync and Sign Out.
+func (a *trotApp) accountMenuItem() *mygo.MenuItem {
+	c := a.account
+	switch {
+	case c == nil:
+		return &mygo.MenuItem{Label: "Sign In to Mon…", Disabled: true}
+	case c.signin != nil:
+		return &mygo.MenuItem{Label: "Waiting for Sign-In…", Click: func(*mygo.MenuItem, *mygo.Window) { a.showSettings("Services") }}
+	case !c.signedIn():
+		return &mygo.MenuItem{Label: "Sign In to Mon…", Click: func(*mygo.MenuItem, *mygo.Window) { a.signIn() }}
+	}
+	var items []*mygo.MenuItem
+	if email := c.email(); email != "" {
+		items = append(items, &mygo.MenuItem{Label: email, Disabled: true})
+	}
+	items = append(items,
+		&mygo.MenuItem{Label: c.syncStatus(), Disabled: true},
+		mygo.Separator(),
+		&mygo.MenuItem{Label: "Sync Settings Now", Disabled: c.busy > 0, Click: func(*mygo.MenuItem, *mygo.Window) { c.sync(cloudsync.Ask, true) }},
+		&mygo.MenuItem{Label: "Manage Account…", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.Shell.OpenExternal(service.MonURL() + "/account") }},
+		&mygo.MenuItem{Label: "Sign Out", Click: func(*mygo.MenuItem, *mygo.Window) { c.signOut() }},
+	)
+	return &mygo.MenuItem{Label: "Mon: " + c.name(), Submenu: items}
+}
+
+// signIn signs in to Mon with Settings open at the Services pane, where
+// the code to approve shows.
+func (a *trotApp) signIn() {
+	a.showSettings("Services")
+	a.account.signIn()
 }
 
 // registerHotKeys registers the actions' global shortcuts anew. Carbon
@@ -299,6 +342,7 @@ func (a *trotApp) hotKey(act shortcut.Action) {
 }
 
 func (a *trotApp) run(act shortcut.Action) {
+	a.account.pull()
 	switch act {
 	case shortcut.TranslateSelection:
 		a.ctl.translateSelection()
@@ -348,6 +392,7 @@ func (a *trotApp) showSettings(pane string) {
 	if pane != "" {
 		a.settingsView.showPane(pane)
 	}
+	a.account.pull()
 	mygo.App.Focus()
 	a.settingsWin.Show()
 	a.settingsWin.Focus()

@@ -3,6 +3,25 @@
 The update window shows the section of the version it offers. Every release
 needs a `## <version>` section here, or its build fails.
 
+## Unreleased
+
+- Sign in with your [Mon](https://mon.sorrycc.dev) account, with GitHub or
+  Google, from Settings > Services or the menu bar menu, and translate with
+  the new Mon service: no API key, and 500,000 tokens a day on a free
+  account. Mon is the service a new install starts with; an install that
+  used OpenAI Compatible keeps it.
+- Signed in, Trot syncs its settings between your Macs: the languages, the
+  service, the base URLs and models, and the shortcuts. API keys stay on
+  each Mac. The first sync of a Mac with settings of its own asks whose to
+  keep.
+- The menu bar menu shows the account, when the settings last synced, Sync
+  Settings Now, Manage Account and Sign Out.
+- Crash reports go to Mon at the next launch, anonymously and with the home
+  folder taken out. Settings > General turns them off.
+- The Claude service notes when a model thinks before it answers, and so
+  shows Thinking… in the panel, as OpenAI Compatible does.
+- ⌘1 to ⌘5 pick the service in the panel, Mon first.
+
 ## 0.5.0
 
 - Trot is rewritten in Go and draws its own interface with

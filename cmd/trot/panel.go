@@ -448,7 +448,7 @@ func (p *panel) view(c *ui.Context) {
 }
 
 // shortcuts: ⌘W closes, like a window. ⌘P pins, ⌘L opens the language
-// menu and ⌘1 to ⌘4 pick a service, so the panel works without the mouse.
+// menu and ⌘1 to ⌘5 pick a service, so the panel works without the mouse.
 func (p *panel) shortcuts(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyW) {
 		p.close()
@@ -491,7 +491,7 @@ func (p *panel) header(c *ui.Context) {
 		ui.Spacer(c)
 		sc := p.chip(c, "service", func() {
 			ui.Text(c, p.service.ShortName()).TextColor(t.Text)
-		}).Label("Service: " + p.service.DisplayName()).Tooltip("Translation service (⌘1 – ⌘4)").MarginEnd(4)
+		}).Label("Service: " + p.service.DisplayName()).Tooltip("Translation service (⌘1 – ⌘5)").MarginEnd(4)
 		p.serviceChip = sc.Bounds()
 		if p.mode != modeInput {
 			icon, tip, color := iconPin, "Keep Open (⌘P)", t.TextMuted

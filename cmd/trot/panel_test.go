@@ -189,9 +189,13 @@ func TestShortcuts(t *testing.T) {
 		t.Error("a pinned panel stays")
 	}
 	tt.Key(ui.Cmd, ui.KeyP)
-	tt.Key(ui.Cmd, ui.Key3)
+	tt.Key(ui.Cmd, ui.Key4)
 	if picked != service.DeepL {
-		t.Errorf("⌘3 picked %q", picked)
+		t.Errorf("⌘4 picked %q", picked)
+	}
+	tt.Key(ui.Cmd, ui.Key2)
+	if picked != service.OpenAI {
+		t.Errorf("⌘2 picked %q", picked)
 	}
 	closed := 0
 	p.onClose = func() { closed++ }

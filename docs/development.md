@@ -25,6 +25,14 @@ open build/darwin-arm64/Trot.app --args -service openAI -service.openAI.baseURL 
 
 The path picks the behaviour: `/v1` streams a translation one character at a time, `/slow` does so slowly, `/fail` answers with an error, `/plain` ignores `stream` and answers with one message, as some gateways do, `/empty` streams nothing, `/rtl` answers in Arabic, `/long` with several screens of text, `/length` stops with `finish_reason: length`, as a cut-off reply does, and `/think` sends reasoning first and then a short reply in one burst, as DeepSeek's thinking models do.
 
+## Trying Mon on localhost
+
+`TROT_MON_URL` points the Mon service, the sign-in, settings sync and crash reports at another Mon, such as one run from the Mon repository with `MON_DEV_LOGIN=1`, whose sign-in page has a one-click test user. Crash reports, which only release builds send, are sent with it set too:
+
+```sh
+TROT_MON_URL=http://localhost:8080 scripts/dev.sh
+```
+
 ## Looking at the real window
 
 `TROT_SNAPSHOT=out.png` captures the panel three seconds after launch and quits, or Settings with `TROT_SNAPSHOT_WINDOW=settings`; `TROT_DATA_DIR` keeps the settings of such a run apart. The window's number goes to `out.png.id`, for `screencapture -l`, which shows the material behind the panel too, and its bounds to `out.png.bounds`:
@@ -37,7 +45,7 @@ sleep 4; screencapture -o -l$(cat /tmp/panel.png.id) docs/images/panel.png
 
 ## Tests
 
-`go test ./...` covers language detection, the two-language rule and the swap, shortcut parsing, display and the migration of old ones, settings and the import of the old user defaults, the joining of screenshot lines into paragraphs, the HTTP helpers, base URL tidying, error messages, the service language codes, the services against a test server, the selection reader against a fake system, and the panel and the controller, headless with MyGo's tester. The tests of `internal/mac` call the real frameworks: Vision reads text MyGo drew, and one test writes the clipboard and puts it back, which `-short` skips.
+`go test ./...` covers language detection, the two-language rule and the swap, shortcut parsing, display and the migration of old ones, settings and the import of the old user defaults, the joining of screenshot lines into paragraphs, the HTTP helpers, base URL tidying, error messages, the service language codes, the services against a test server, Mon's client, the settings sync merge against a fake account, crash reports, the selection reader against a fake system, and the panel and the controller, headless with MyGo's tester. The tests of `internal/mac` call the real frameworks: Vision reads text MyGo drew, and one test writes the clipboard and puts it back, which `-short` skips.
 
 `TROT_SHOTS=<dir> go test -run TestShots ./cmd/trot` draws the panel's states, light and dark, into `<dir>`.
 
@@ -71,13 +79,15 @@ All of them are required. Local builds stay signed ad hoc; only the workflow sig
 
 | Path | Description |
 |---|---|
-| `cmd/trot/` | The app: `main.go` (the menu bar icon, the hotkeys, the menus and launch arguments), `controller.go` (selection, input and screenshot to a translation), `panel.go` and `panelwin.go` (the floating panel and its window), `settingswin.go` and `recorder.go` (Settings). |
+| `cmd/trot/` | The app: `main.go` (the menu bar icon, the hotkeys, the menus and launch arguments), `controller.go` (selection, input and screenshot to a translation), `panel.go` and `panelwin.go` (the floating panel and its window), `settingswin.go` and `recorder.go` (Settings), `account.go` (the Mon sign-in and settings sync), `crashlog.go` and `crashreport.go` (crash logs and their reports). |
+| `internal/mon/` | Mon's Go client, a copy of the private `github.com/sorrycc/mon/client`: the device sign-in, the settings document and crash reports. |
+| `internal/cloudsync/` | Settings sync: the merge with the account's settings, ported from Mayoi. |
 | `internal/mac/` | The macOS frameworks through purego: Accessibility, ⌘C, the pasteboard, Vision, speech, NaturalLanguage and the panel's window. |
 | `internal/selection/` | Reads the selection of the frontmost app, through Accessibility or a copy. |
 | `internal/service/` | One function per translation service, and the HTTP and server-sent event helpers. |
 | `internal/lang/` | The languages, their detection and the two-language rule. |
 | `internal/ocr/` | The screenshot crosshair and joining its lines into paragraphs. |
-| `internal/settings/` | `settings.json`, and the import of the old user defaults. |
+| `internal/settings/` | `settings.json`, which of its settings sync, and the import of the old user defaults. |
 | `internal/shortcut/` | Hotkey combinations as accelerators. |
 | `resources/icon.png` | The app icon, which `mygo build` makes the `.icns` of. |
 | `art/` | The artwork the icons were cut from. |
