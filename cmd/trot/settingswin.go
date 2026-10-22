@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -21,7 +22,11 @@ import (
 //go:embed assets/about.png
 var aboutPNG []byte
 
-var aboutIcon, _ = ui.DecodeBitmap(aboutPNG)
+// aboutIcon is decoded the first time About shows, not at every launch.
+var aboutIcon = sync.OnceValue(func() *ui.Bitmap {
+	b, _ := ui.DecodeBitmap(aboutPNG)
+	return b
+})
 
 // Facts about the app, for About and the links in Settings.
 const (
@@ -55,6 +60,9 @@ type settingsView struct {
 	loginErr  string
 	fitted    int
 	resize    func(height int)
+	// paneShown and testShown are what the entrances of the pane and of
+	// a test's check last eased in.
+	paneShown, testShown any
 }
 
 func newSettingsView(a *trotApp) *settingsView {
@@ -74,13 +82,15 @@ func (v *settingsView) showPane(name string) {
 }
 
 func (v *settingsView) view(c *ui.Context) {
-	t := c.Theme()
 	card := ui.Column(c.Key("settings")).Width(settingsWidth).Shrink(0)
 	card.Children(func() {
 		ui.Row(c).Justify(ui.Center).Padding(14, 20, 6).Children(func() {
 			ui.Segmented(c, &v.pane, panes...).Label("Settings pane")
 		})
-		ui.Column(c.Key(panes[v.pane])).Padding(14, 28, 22).Gap(16).Children(func() {
+		pane := ui.Column(c.Key(panes[v.pane])).Padding(14, 28, 22).Gap(16)
+		// A pane picked rises in as the window takes its height.
+		entrance(pane, &v.paneShown, v.pane, 6)
+		pane.Children(func() {
 			switch v.pane {
 			case 0:
 				v.general(c)
@@ -93,7 +103,6 @@ func (v *settingsView) view(c *ui.Context) {
 			}
 		})
 	})
-	_ = t
 	if h := int(math.Ceil(float64(card.LayoutBounds().H))); h > 0 && h != v.fitted && v.resize != nil {
 		v.fitted = h
 		v.resize(h)
@@ -251,6 +260,14 @@ func (v *settingsView) services(c *ui.Context) {
 				if ui.Button(c, "Test").Clicked() {
 					v.test()
 				}
+				if v.testResult != "" {
+					ok := ui.Row(c.Key("works")).Gap(6).AlignItems(ui.Center)
+					entrance(ok, &v.testShown, v.testResult, 4)
+					ok.Children(func() {
+						ui.Icon(c, iconCheck).FontSize(14).TextColor(c.Theme().Success)
+						ui.Text(c, "Works").FontSize(13)
+					})
+				}
 			})
 		}).Description(v.testNote()).Error(v.testErr)
 	})
@@ -401,14 +418,20 @@ func (v *settingsView) shortcuts(c *ui.Context) {
 					reset := ui.ButtonBase(c.Key(string(act)+"reset")).Size(24, 24).Center().Radius(6).
 						Label("Use Default Shortcut").Tooltip("Use the default, " + act.Default().Display()).
 						Disabled(!s.ShortcutIsCustom(act))
+					fill := t.SurfaceHover.Alpha(0)
 					if reset.Hovered() {
-						reset.Background(t.SurfaceHover)
+						fill = t.SurfaceHover
 					}
+					reset.Background(reset.AnimateColor("fill", fill, hoverAnim))
+					pressScale(reset, reset.Pressed())
 					color := t.TextMuted
 					if !s.ShortcutIsCustom(act) {
 						color = color.Alpha(0.4)
 					}
-					reset.Children(func() { ui.Icon(c, iconReset).FontSize(13).TextColor(color) })
+					reset.Children(func() {
+						ic := ui.Icon(c, iconReset).FontSize(13)
+						ic.TextColor(ic.AnimateColor("color", color, hoverAnim))
+					})
 					if reset.Clicked() {
 						s.ResetShortcut(act)
 					}
@@ -426,8 +449,8 @@ func (v *settingsView) shortcuts(c *ui.Context) {
 func (v *settingsView) about(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).AlignItems(ui.Center).Gap(8).Padding(6, 0, 4).Children(func() {
-		if aboutIcon != nil {
-			ui.Image(c, aboutIcon).Size(96, 96)
+		if icon := aboutIcon(); icon != nil {
+			ui.Image(c, icon).Size(96, 96)
 		}
 		ui.Text(c, "Trot").FontSize(20).Bold()
 		version := "Development build"

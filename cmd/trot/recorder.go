@@ -51,8 +51,7 @@ type recorder struct {
 func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.Shortcut, ok bool,
 	record func(*shortcut.Shortcut), onRecording func(bool)) ui.Element {
 	t := c.Theme()
-	b := ui.ButtonBase(c).MinWidth(128).Height(24).Padding(0, 10).Center().Radius(6).Focusable().
-		Border(1, t.Border).Background(t.Surface)
+	b := ui.ButtonBase(c).MinWidth(128).Height(24).Padding(0, 10).Center().Radius(6).Focusable()
 	set := func(on bool) {
 		if r.recording != on {
 			r.recording = on
@@ -90,10 +89,13 @@ func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.S
 		}
 	}
 	var text string
-	color := t.Text
+	color, fill, border := t.Text, t.Surface, t.Border
+	if b.Hovered() {
+		fill = t.SurfaceHover
+	}
 	switch {
 	case r.recording:
-		b.Background(t.Accent).Border(1, t.Accent)
+		fill, border = t.Accent, t.Accent
 		color = t.AccentText
 		held := c.Modifiers()
 		mods := shortcut.Shortcut{Ctrl: held&ui.Ctrl != 0, Alt: held&ui.Alt != 0,
@@ -111,6 +113,12 @@ func recorderButton(c *ui.Context, r *recorder, label string, current shortcut.S
 		color = t.TextMuted
 		b.Label("No shortcut for " + label)
 	}
-	b.Children(func() { ui.Text(c, text).FontSize(13).TextColor(color).SingleLine() })
+	// The button turns to the accent as it starts listening, and back.
+	b.Background(b.AnimateColor("fill", fill, hoverAnim)).Border(1, b.AnimateColor("border", border, hoverAnim))
+	pressScale(b, b.Pressed())
+	b.Children(func() {
+		label := ui.Text(c.Key("text"), text).FontSize(13).SingleLine().ContentTransition(swap)
+		label.TextColor(label.AnimateColor("color", color, hoverAnim))
+	})
 	return b
 }

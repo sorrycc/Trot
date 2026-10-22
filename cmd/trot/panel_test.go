@@ -400,6 +400,12 @@ func TestShots(t *testing.T) {
 				p.showError("The API key was rejected (HTTP 401).", &action{"Open Settings…", func() {}})
 			},
 			"input": func(p *panel) { p.showInput(mygo.Point{}, "", nil) },
+			"paragraphs": func(p *panel) {
+				p.begin("Two paragraphs.", lang.English, lang.ChineseSimplified, service.OpenAI, mygo.Point{})
+				p.append("第一段文字，用来检查段落之间的距离。\n\n第二段文字，紧接着一个空行。\n第二段的第二行。")
+				p.finish("0.9 s · gpt-4o-mini")
+			},
+			"reading": func(p *panel) { p.beginReading("Reading the selection…", mygo.Point{}, false) },
 			"arabic": func(p *panel) {
 				p.begin("Hello, how are you?", lang.English, lang.Arabic, service.Claude, mygo.Point{})
 				p.append("مرحبا، كيف حالك؟")
@@ -408,6 +414,8 @@ func TestShots(t *testing.T) {
 		} {
 			p, h, tt := testPanel(t, nil)
 			tt.SetDark(dark)
+			// Settled, without entrances half done.
+			tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 			setUp(p)
 			tt.Frame()
 			tt.Frame()

@@ -21,6 +21,20 @@ needs a `## <version>` section here, or its build fails.
 - The Claude service notes when a model thinks before it answers, and so
   shows Thinking… in the panel, as OpenAI Compatible does.
 - ⌘1 to ⌘5 pick the service in the panel, Mon first.
+- The panel and Settings move more smoothly: the panel settles into place
+  as it appears, a new translation or notice rises in, buttons fade their
+  fill under the mouse and give a little as they are pressed, the chips'
+  chevrons turn while their menu is open, copy's check and the pin replace
+  their icons in place, and the status breathes while Trot waits. Settings
+  grows and shrinks smoothly to each pane, which fades in. Reduce Motion
+  turns the movement off.
+- The panel has a hairline edge, and a fainter line between the source and
+  the translation. A spinner shows while Trot reads the selection or a
+  screenshot, and Test in Settings shows a check once a test translation
+  works.
+- A long translation of several paragraphs streams in with about a third
+  of the work per frame, as only its last paragraph is laid out again, and
+  About's icon is decoded when About first shows rather than at launch.
 
 ## 0.5.0
 

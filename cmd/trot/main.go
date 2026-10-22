@@ -369,9 +369,14 @@ func (a *trotApp) showSettings(pane string) {
 			Content:         ui.View(v.view),
 		})
 		v.resize = func(h int) {
-			// Grow and shrink with the top edge still.
+			// Grow and shrink with the top edge still: smoothly, as the
+			// pane picked rises in, once the window shows.
 			b := win.Bounds()
 			_, oldH := win.ContentSize()
+			if win.IsVisible() && oldH > 0 && !mygo.Theme.Preferences().ReduceMotion {
+				mac.AnimateFrame(win.NativeHandle(), float64(b.X), float64(b.Y), float64(b.Width), float64(b.Height+h-oldH), settingsResize)
+				return
+			}
 			win.SetContentSize(settingsWidth, h)
 			nb := win.Bounds()
 			if nb.Y != b.Y && oldH > 0 {

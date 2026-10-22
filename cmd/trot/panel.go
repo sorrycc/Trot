@@ -132,6 +132,14 @@ type panel struct {
 	langChip, serviceChip ui.Rect
 	menuOpen              string
 	fitted                int
+
+	// presented counts the panel's appearances, and results its
+	// translations, for their entrances; the shown fields are what the
+	// entrances last eased in. arriving is true in the frame the panel
+	// appears, whose result and notice come in with the card.
+	presented, results                  int
+	cardShown, resultShown, noticeShown any
+	arriving                            bool
 }
 
 func newPanel(s *settings.Settings) *panel {
@@ -271,6 +279,7 @@ func (p *panel) finish(status string) {
 }
 
 func (p *panel) startResult(k service.Kind) {
+	p.results++
 	p.showsError = false
 	p.reading = false
 	p.clearResult()
@@ -296,6 +305,9 @@ func (p *panel) endStreaming() {
 }
 
 func (p *panel) present(point mygo.Point, key bool) {
+	if !p.host.visible() {
+		p.presented++
+	}
 	p.host.present(point, key)
 }
 
@@ -420,6 +432,20 @@ func tint(t *ui.Theme) ui.Color {
 	return ui.RGBA(255, 255, 255, 0.6)
 }
 
+// edge is the hairline around the card.
+func edge(t *ui.Theme) ui.Color {
+	if t.Dark {
+		return ui.RGBA(255, 255, 255, 0.1)
+	}
+	return ui.RGBA(0, 0, 0, 0.06)
+}
+
+// rule is the line between the source and the result: fainter than a
+// divider, so the two read as one card.
+func rule(c *ui.Context) {
+	ui.Box(c).Height(1).Shrink(0).AlignSelf(ui.Stretch).Background(c.Theme().Text.Alpha(0.08))
+}
+
 func (p *panel) view(c *ui.Context) {
 	t := c.Theme()
 	if c.Vibrancy() {
@@ -427,6 +453,9 @@ func (p *panel) view(c *ui.Context) {
 	} else {
 		c.Root().Background(t.Background)
 	}
+	// A hairline inside the edge keeps the card crisp over a page of the
+	// same color, as a popover's.
+	c.Root().Radius(panelRadius).Border(1, edge(t))
 	p.shortcuts(c)
 	if p.announcement != "" {
 		c.Announce(p.announcement)
@@ -434,6 +463,9 @@ func (p *panel) view(c *ui.Context) {
 	}
 
 	card := ui.Column(c.Key("card")).Width(panelWidth).Shrink(0).Padding(12, panelInset).Gap(10).DragWindow()
+	// The card settles into place as the window fades in.
+	p.arriving = p.cardShown != p.presented
+	entrance(card, &p.cardShown, p.presented, 4)
 	card.Children(func() {
 		p.header(c)
 		p.body(c)
@@ -498,11 +530,11 @@ func (p *panel) header(c *ui.Context) {
 			if p.pinned {
 				icon, tip, color = iconPinFilled, "Close When Clicking Elsewhere (⌘P)", t.Accent
 			}
-			if p.iconButton(c, icon, tip, color).Clicked() {
+			if p.iconButton(c, "pin", icon, tip, color).Clicked() {
 				p.pinned = !p.pinned
 			}
 		}
-		if p.iconButton(c, iconClose, "Close (Escape)", t.TextMuted).Clicked() {
+		if p.iconButton(c, "close", iconClose, "Close (Escape)", t.TextMuted).Clicked() {
 			p.close()
 		}
 	})
@@ -513,32 +545,47 @@ func (p *panel) header(c *ui.Context) {
 func (p *panel) chip(c *ui.Context, which string, content func()) ui.Element {
 	t := c.Theme()
 	b := ui.ButtonBase(c.Key(which)).Height(22).Padding(0, 8).Gap(4).Radius(11).FontSize(12).FontWeight(500)
+	open := p.menuOpen == which
 	alpha := float32(0.07)
-	if p.menuOpen == which {
+	if open || b.Pressed() {
 		alpha = 0.16
 	} else if b.Hovered() {
 		alpha = 0.12
 	}
-	b.Background(t.Text.Alpha(alpha))
+	b.Background(b.AnimateColor("fill", t.Text.Alpha(alpha), hoverAnim))
+	pressScale(b, b.Pressed() && !open)
 	b.Children(func() {
 		content()
-		ui.Icon(c, iconChevronDown).FontSize(10).TextColor(t.TextMuted)
+		// The chevron turns up while the menu is open.
+		turn := float32(0)
+		if open {
+			turn = 180
+		}
+		chev := ui.Icon(c.Key("chevron"), iconChevronDown).FontSize(10).TextColor(t.TextMuted)
+		chev.Rotate(chev.AnimateTo("turn", turn, turnAnim))
 	})
 	b.OnClick(func() { p.showMenu(which) })
 	return b
 }
 
 // iconButton draws its fill only under the mouse, as an accessory button
-// does.
-func (p *panel) iconButton(c *ui.Context, icon *ui.SVG, tip string, color ui.Color) ui.Element {
+// does. id keeps it the same button as its icon and tip change, so the
+// new icon replaces the old one in place.
+func (p *panel) iconButton(c *ui.Context, id string, icon *ui.SVG, tip string, color ui.Color) ui.Element {
 	t := c.Theme()
-	b := ui.ButtonBase(c.Key(tip)).Size(22, 22).Center().Radius(6).Label(tip).Tooltip(tip)
+	b := ui.ButtonBase(c.Key(id)).Size(22, 22).Center().Radius(6).Label(tip).Tooltip(tip)
+	alpha := float32(0)
 	if b.Pressed() {
-		b.Background(t.Text.Alpha(0.14))
+		alpha = 0.14
 	} else if b.Hovered() {
-		b.Background(t.Text.Alpha(0.08))
+		alpha = 0.08
 	}
-	b.Children(func() { ui.Icon(c, icon).FontSize(13).TextColor(color) })
+	b.Background(b.AnimateColor("fill", t.Text.Alpha(alpha), hoverAnim))
+	pressScale(b, b.Pressed())
+	b.Children(func() {
+		ic := ui.Icon(c.Key("icon"), icon).FontSize(13).ContentTransition(swap)
+		ic.TextColor(ic.AnimateColor("color", color, hoverAnim))
+	})
 	return b
 }
 
@@ -568,7 +615,7 @@ func (p *panel) body(c *ui.Context) {
 	showResult := !p.reading && (hasResult || (p.mode == modeResult && !p.showsError))
 	showNotice := p.notice != nil && !p.reading
 	if showResult || showNotice {
-		ui.Divider(c)
+		rule(c)
 	}
 	if showResult {
 		p.resultView(c, room*0.5, &sel)
@@ -625,19 +672,31 @@ func (p *panel) resultView(c *ui.Context, cap float32, sel *[]string) {
 		p.resultScroll.Y = math.MaxFloat32
 	}
 	scroll := ui.Scroll(c.Key("result")).MaxHeight(cap).TrackScroll(&p.resultScroll)
+	// A new translation rises in; one shown with the panel comes in with
+	// the card.
+	if p.arriving {
+		p.resultShown = p.results
+	}
+	entrance(scroll, &p.resultShown, p.results, 6)
 	scroll.Children(func() {
 		box := ui.Column(c).Selectable().Lang(string(p.target))
 		if p.target.RightToLeft() {
 			box.Direction(ui.RightToLeft)
 		}
-		box.Children(func() {
-			para := ui.RichText(c).FontSize(15).LineHeight(1.4).TextColor(t.Text)
-			para.Children(func() {
-				ui.Text(c, p.result)
-				if p.streaming {
-					p.caret(c)
-				}
-			})
+		// One paragraph per block of text, a blank line apart: a chunk
+		// arriving then shapes only the last paragraph again, not the
+		// whole translation.
+		blocks := strings.Split(p.result, "\n\n")
+		box.Gap(15 * 1.4).Children(func() {
+			for i, block := range blocks {
+				para := ui.RichText(c.Key(i)).FontSize(15).LineHeight(1.4).TextColor(t.Text)
+				para.Children(func() {
+					ui.Text(c, block)
+					if p.streaming && i == len(blocks)-1 {
+						p.caret(c)
+					}
+				})
+			}
 		})
 		*sel = append(selectedStrings(box.SelectedTexts()), *sel...)
 	})
@@ -669,7 +728,13 @@ func (p *panel) noticeView(c *ui.Context, n notice) {
 	if n.isError {
 		icon, tintColor, fill = iconAlert, t.Danger, t.Danger.Alpha(0.12)
 	}
-	ui.Column(c.Key("notice")).Padding(10, 12).Gap(8).Radius(10).Background(fill).Children(func() {
+	box := ui.Column(c.Key("notice")).Padding(10, 12).Gap(8).Radius(10).Background(fill)
+	// A notice shown with the panel comes in with the card.
+	if p.arriving {
+		p.noticeShown = p.notice
+	}
+	entrance(box, &p.noticeShown, p.notice, 6)
+	box.Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
 			ui.Icon(c, icon).FontSize(15).TextColor(tintColor).Margin(1, 0, 0, 0)
 			ui.Text(c, n.message).FontSize(13).LineHeight(1.35).TextColor(t.Text).Grow(1).Shrink(1).Selectable()
@@ -692,14 +757,25 @@ func (p *panel) footer(c *ui.Context) {
 		return
 	}
 	ui.Row(c.Key("footer")).Height(22).Gap(6).Children(func() {
-		ui.Text(c, p.status).FontSize(11).FontFeatures("tnum").TextColor(t.TextMuted).SingleLine().Grow(1).Shrink(1).
-			Tooltip(p.status)
+		if p.reading {
+			ui.Spinner(c).Size(12, 12)
+		}
+		status := ui.Text(c.Key("status"), p.status).FontSize(11).FontFeatures("tnum").SingleLine().Grow(1).Shrink(1).
+			Tooltip(p.status).ContentTransition(swap)
+		color := t.TextMuted
+		// While waiting, the status breathes, so the panel never looks
+		// stuck.
+		if (p.reading || p.streaming) && !c.Preferences().ReduceMotion {
+			phase := status.Loop("breathe", 1600*time.Millisecond, ui.Linear)
+			color = color.Alpha(0.55 + 0.45*float32(0.5+0.5*math.Cos(2*math.Pi*float64(phase))))
+		}
+		status.TextColor(color)
 		if showSpeak {
 			icon, tip, color := iconSpeaker, "Speak Translation", t.TextMuted
 			if p.speaking() {
 				icon, tip, color = iconStop, "Stop Speaking", t.Accent
 			}
-			if p.iconButton(c, icon, tip, color).Clicked() {
+			if p.iconButton(c, "speak", icon, tip, color).Clicked() {
 				p.toggleSpeech()
 			}
 		}
@@ -709,7 +785,7 @@ func (p *panel) footer(c *ui.Context) {
 				icon, color = iconCheck, t.Success
 				c.After(1200*time.Millisecond - since)
 			}
-			if p.iconButton(c, icon, "Copy Translation (⌘C)", color).Clicked() {
+			if p.iconButton(c, "copy", icon, "Copy Translation (⌘C)", color).Clicked() {
 				p.copyResult(c)
 			}
 		}
