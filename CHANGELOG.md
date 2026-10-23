@@ -3,7 +3,7 @@
 The update window shows the section of the version it offers. Every release
 needs a `## <version>` section here, or its build fails.
 
-## Unreleased
+## 0.6.0
 
 - Sign in with your [Mon](https://mon.sorrycc.dev) account, with GitHub or
   Google, from Settings > Services or the menu bar menu, and translate with
