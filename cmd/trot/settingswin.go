@@ -355,18 +355,24 @@ func (v *settingsView) services(c *ui.Context) {
 				if ui.TextInput(c.Key(string(k)+"url"), &v.baseURL).Placeholder(k.DefaultBaseURL()).Changed() {
 					s.SetBaseURL(k, v.baseURL)
 				}
-			}).Description("Requests go to " + endpoint(k, s.ActiveBaseURL(k)) + ". Point it at DeepSeek, Qwen, Ollama or a proxy.")
+			}).Description(baseURLNote(k, s.ActiveBaseURL(k)))
 		}
-		if k.NeedsKey() {
+		if k.NeedsKey() || k == service.IndexTranslate {
 			ui.Field(c, "API key", func() {
 				// The note goes right under the field, as the other rows'
 				// do, and the link to a key after it.
 				ui.Column(c).Gap(4).Children(func() {
-					if ui.TextInput(c.Key(string(k)+"key"), &v.apiKey).Password().Placeholder("Required").Changed() {
+					placeholder := "Required"
+					if !k.NeedsKey() {
+						placeholder = "Optional"
+					}
+					if ui.TextInput(c.Key(string(k)+"key"), &v.apiKey).Password().Placeholder(placeholder).Changed() {
 						s.SetAPIKey(k, v.apiKey)
 					}
 					note(c, keyNote(k))
-					ui.Link(c, "Get an API key", k.KeyPage()).FontSize(12)
+					if page := k.KeyPage(); page != "" {
+						ui.Link(c, "Get an API key", page).FontSize(12)
+					}
 				})
 			})
 		}
@@ -376,6 +382,9 @@ func (v *settingsView) services(c *ui.Context) {
 					s.SetModel(k, v.model)
 				}
 			})
+			if k == service.IndexTranslate {
+				f.Description("Must match the local server’s model name or alias; llama-server commonly uses Index-Translate-9B.")
+			}
 			if k.SignsIn() {
 				f.Description("The models your account can use are listed at " + k.DefaultBaseURL() + "/v1/models.")
 			}
@@ -475,6 +484,8 @@ func serviceNote(k service.Kind) string {
 	switch k {
 	case service.Mon:
 		return "Mon's AI gateway, with your Mon account. A free account translates 500,000 tokens a day."
+	case service.IndexTranslate:
+		return "Run Index-Translate locally with llama.cpp, vLLM or SGLang. Start the server first; Trot does not download models."
 	case service.OpenAI:
 		return "Any chat completions API: OpenAI, DeepSeek, Qwen, Ollama and others."
 	case service.Claude:
@@ -485,7 +496,17 @@ func serviceNote(k service.Kind) string {
 	return "Google's web endpoint. No key, but unofficial, so it can stop working."
 }
 
+func baseURLNote(k service.Kind, base string) string {
+	if k == service.IndexTranslate {
+		return "Requests go only to " + endpoint(k, base) + ". Use a local server for private translation; no cloud fallback."
+	}
+	return "Requests go to " + endpoint(k, base) + ". Point it at DeepSeek, Qwen, Ollama or a proxy."
+}
+
 func keyNote(k service.Kind) string {
+	if k == service.IndexTranslate {
+		return "Leave empty unless your server requires a key. Sent only to the configured server."
+	}
 	return "Saved on this Mac, and sent only to " + k.DisplayName() + "."
 }
 
@@ -505,7 +526,11 @@ func (v *settingsView) test() {
 	cfg := s.Config(k)
 	target := s.Target(lang.English)
 	v.testing, v.testResult, v.testErr = true, "", ""
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	timeout := time.Minute
+	if k == service.IndexTranslate {
+		timeout = 3 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	v.testCancel = cancel
 	win := v.a.settingsWin
 	go func() {

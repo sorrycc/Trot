@@ -222,6 +222,10 @@ func TestShortcuts(t *testing.T) {
 	if picked != service.OpenAI {
 		t.Errorf("⌘2 picked %q", picked)
 	}
+	tt.Key(ui.Cmd, ui.Key6)
+	if picked != service.IndexTranslate {
+		t.Errorf("⌘6 picked %q", picked)
+	}
 	closed := 0
 	p.onClose = func() { closed++ }
 	p.outsideClick()

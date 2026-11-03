@@ -16,7 +16,7 @@ Trot is a macOS menu bar app that translates selected text, typed text and scree
 - Type or paste text into the panel and translate it.
 - Translate the text in a screen region, read with Vision.
 - Text in your first language goes into your second; anything else goes into your first.
-- Sign in with a [Mon](https://mon.sorrycc.dev) account and translate with no API key, or use any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL or Google.
+- Sign in with a [Mon](https://mon.sorrycc.dev) account and translate with no API key, or use any OpenAI-compatible chat API (OpenAI, DeepSeek, Qwen, Ollama), Claude, DeepL or Google, or run [Index-Translate locally](docs/index-translate.md).
 - Signed in, your settings and shortcuts sync between your Macs.
 
 ## Usage
@@ -27,7 +27,7 @@ Trot is a macOS menu bar app that translates selected text, typed text and scree
 | ⌥A | Open the panel to type text |
 | ⌥S | Translate a screenshot |
 
-In the panel, ⌘L picks another target language, ⌘1 to ⌘5 switch the service and ⌘P pins the panel. You can change the hotkeys in Settings.
+In the panel, ⌘L picks another target language, ⌘1 to ⌘6 switch the service and ⌘P pins the panel. You can change the hotkeys in Settings.
 
 ## Requirements
 

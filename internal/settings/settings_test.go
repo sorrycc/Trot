@@ -133,12 +133,13 @@ func TestSynced(t *testing.T) {
 		"firstLanguage": true, "service": true, "service.openAI.baseURL": true, "service.mon.model": true,
 		"shortcut.translateInput": true, "service.openAI.apiKey": false, "mon.token": false,
 		"welcomed": false, "sendCrashReports": false,
+		"service.indexTranslate.baseURL": true, "service.indexTranslate.model": true, "service.indexTranslate.apiKey": false,
 	} {
 		if IsSynced(key) != want {
 			t.Errorf("IsSynced(%s)", key)
 		}
 	}
-	if KnowsSynced("service.future.model") || KnowsSynced("shortcut.future") || !KnowsSynced("service.claude.model") {
+	if !KnowsSynced("service.indexTranslate.model") || !KnowsSynced("service.indexTranslate.baseURL") || KnowsSynced("service.future.model") || KnowsSynced("shortcut.future") || !KnowsSynced("service.claude.model") {
 		t.Error("KnowsSynced")
 	}
 
@@ -242,5 +243,30 @@ func TestParsePlist(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
+	}
+}
+
+func TestIndexSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s := Load(path, nil)
+	s.SetAPIKey(service.OpenAI, "cloud-key")
+	s.SetService(service.IndexTranslate)
+	if s.NeedsSetup() {
+		t.Fatal("local inference should not require a key")
+	}
+	c := s.Config(service.IndexTranslate)
+	if c.BaseURL != service.IndexTranslate.DefaultBaseURL() || c.Model != service.IndexTranslate.DefaultModel() || c.APIKey != "" {
+		t.Fatalf("defaults: %+v", c)
+	}
+	s.SetBaseURL(service.IndexTranslate, "localhost:8080/v1/chat/completions/")
+	s.SetModel(service.IndexTranslate, "Index-Translate-9B")
+	s.SetAPIKey(service.IndexTranslate, "local-key")
+	r := Load(path, nil)
+	c = r.Config(service.IndexTranslate)
+	if r.Service() != service.IndexTranslate || c.BaseURL != "http://localhost:8080/v1" || c.Model != "Index-Translate-9B" || c.APIKey != "local-key" {
+		t.Fatalf("reloaded: %+v", c)
+	}
+	if r.APIKey(service.OpenAI) != "cloud-key" {
+		t.Fatal("must not overwrite other services")
 	}
 }

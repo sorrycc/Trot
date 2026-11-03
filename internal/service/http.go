@@ -97,6 +97,12 @@ func (r *idleReader) Close() error {
 // and whose reads time out when the service goes quiet. A status other
 // than 2xx is an HTTPError with the service's message.
 func post(ctx context.Context, target string, headers map[string]string, body []byte, contentType string) (io.ReadCloser, error) {
+	return postUsing(ctx, target, headers, body, contentType, client, true)
+}
+
+// Non-streaming local inference may be quiet for the entire generation.
+// It still shares the total request deadline and caller cancellation.
+func postUsing(ctx context.Context, target string, headers map[string]string, body []byte, contentType string, hc *http.Client, idle bool) (io.ReadCloser, error) {
 	u, err := url.Parse(target)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, &BadURLError{target}
@@ -111,7 +117,7 @@ func post(ctx context.Context, target string, headers map[string]string, body []
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := client.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		cancel()
 		if ctx.Err() == context.DeadlineExceeded {
@@ -119,7 +125,11 @@ func post(ctx context.Context, target string, headers map[string]string, body []
 		}
 		return nil, err
 	}
-	rc := &cancelCloser{newIdleReader(resp.Body, cancel), cancel}
+	var reader io.ReadCloser = resp.Body
+	if idle {
+		reader = newIdleReader(reader, cancel)
+	}
+	rc := &cancelCloser{reader, cancel}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		data, _ := io.ReadAll(io.LimitReader(rc, 16*1024))
 		rc.Close()

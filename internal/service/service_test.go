@@ -43,6 +43,7 @@ func TestNormalizeBaseURL(t *testing.T) {
 		kind Kind
 		want string
 	}{
+		{"127.0.0.1:8000/v1/chat/completions/", IndexTranslate, "http://127.0.0.1:8000/v1"},
 		{"api.openai.com/v1", OpenAI, "https://api.openai.com/v1"},
 		{"https://api.openai.com/v1/chat/completions", OpenAI, "https://api.openai.com/v1"},
 		{"https://api.openai.com/v1//", OpenAI, "https://api.openai.com/v1"},
@@ -112,10 +113,14 @@ func TestEveryServiceKnowsWhatItNeeds(t *testing.T) {
 		t.Error("Mon comes first, as the default")
 	}
 	for _, k := range Kinds {
-		if k != Google && k != Mon && (!k.NeedsKey() || !strings.HasPrefix(k.KeyPage(), "https://")) {
+		if k != Google && k != Mon && k != IndexTranslate && (!k.NeedsKey() || !strings.HasPrefix(k.KeyPage(), "https://")) {
 			t.Errorf("%s key", k)
 		}
-		if k.HasBaseURL() && (!strings.HasPrefix(k.DefaultBaseURL(), "https://") || k.DefaultModel() == "") {
+		scheme := "https://"
+		if k == IndexTranslate {
+			scheme = "http://"
+		}
+		if k.HasBaseURL() && (!strings.HasPrefix(k.DefaultBaseURL(), scheme) || k.DefaultModel() == "") {
 			t.Errorf("%s defaults", k)
 		}
 		if p, ok := ParseKind(string(k)); !ok || p != k {

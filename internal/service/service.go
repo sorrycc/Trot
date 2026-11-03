@@ -15,15 +15,16 @@ import (
 type Kind string
 
 const (
-	Mon    Kind = "mon"
-	OpenAI Kind = "openAI"
-	Claude Kind = "claude"
-	DeepL  Kind = "deepL"
-	Google Kind = "google"
+	Mon            Kind = "mon"
+	OpenAI         Kind = "openAI"
+	Claude         Kind = "claude"
+	DeepL          Kind = "deepL"
+	Google         Kind = "google"
+	IndexTranslate Kind = "indexTranslate"
 )
 
-// Kinds are the services, in the order menus and ⌘1 to ⌘5 list them.
-var Kinds = []Kind{Mon, OpenAI, Claude, DeepL, Google}
+// Kinds are the services, in the order menus and ⌘1 to ⌘6 list them.
+var Kinds = []Kind{Mon, OpenAI, Claude, DeepL, Google, IndexTranslate}
 
 // ParseKind returns the service of a stored name.
 func ParseKind(s string) (Kind, bool) {
@@ -48,6 +49,8 @@ func (k Kind) DisplayName() string {
 		return "DeepL"
 	case Google:
 		return "Google"
+	case IndexTranslate:
+		return "Index-Translate"
 	}
 	return string(k)
 }
@@ -57,11 +60,14 @@ func (k Kind) ShortName() string {
 	if k == OpenAI {
 		return "OpenAI"
 	}
+	if k == IndexTranslate {
+		return "Index"
+	}
 	return k.DisplayName()
 }
 
-// NeedsKey reports whether the service takes an API key.
-func (k Kind) NeedsKey() bool { return k != Google && k != Mon }
+// NeedsKey reports whether the service requires an API key.
+func (k Kind) NeedsKey() bool { return k != Google && k != Mon && k != IndexTranslate }
 
 // SignsIn reports whether the service takes a sign-in to Mon in place of
 // a key.
@@ -87,16 +93,18 @@ func (k Kind) KeyPage() string {
 }
 
 // HasBaseURL reports whether the base URL can be set.
-func (k Kind) HasBaseURL() bool { return k == OpenAI || k == Claude }
+func (k Kind) HasBaseURL() bool { return k == OpenAI || k == Claude || k == IndexTranslate }
 
 // HasModel reports whether the service has models to choose from.
-func (k Kind) HasModel() bool { return k == Mon || k == OpenAI || k == Claude }
+func (k Kind) HasModel() bool { return k == Mon || k == OpenAI || k == Claude || k == IndexTranslate }
 
 // DefaultBaseURL is where requests go when none is set.
 func (k Kind) DefaultBaseURL() string {
 	switch k {
 	case Mon:
 		return MonURL() + "/api/v1/ai"
+	case IndexTranslate:
+		return "http://127.0.0.1:8000/v1"
 	case OpenAI:
 		return "https://api.openai.com/v1"
 	case Claude:
@@ -110,6 +118,8 @@ func (k Kind) DefaultModel() string {
 	switch k {
 	case Mon:
 		return "deepseek-flash"
+	case IndexTranslate:
+		return "IndexTeam/Index-Translate-9B"
 	case OpenAI:
 		return "gpt-4o-mini"
 	case Claude:
@@ -157,7 +167,7 @@ func NormalizeBaseURL(raw string, k Kind) string {
 	url = strings.TrimRight(url, "/")
 	var endpoints []string
 	switch k {
-	case OpenAI:
+	case OpenAI, IndexTranslate:
 		endpoints = []string{"/chat/completions"}
 	case Claude:
 		endpoints = []string{"/v1/messages", "/v1"}
@@ -200,6 +210,8 @@ func Translate(ctx context.Context, k Kind, c Config, text string, source, targe
 	switch k {
 	case Mon:
 		return translateMon(ctx, c, text, source, target, emit)
+	case IndexTranslate:
+		return translateIndex(ctx, c, text, source, target, emit)
 	case OpenAI:
 		return translateOpenAI(ctx, c, text, source, target, emit)
 	case Claude:

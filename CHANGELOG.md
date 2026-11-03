@@ -3,6 +3,12 @@
 The update window shows the section of the version it offers. Every release
 needs a `## <version>` section here, or its build fails.
 
+## Unreleased
+
+- Use local Index-Translate models from **Settings > Services**, with an optional API key.
+- Press `⌘6` in the panel to select Index-Translate; existing service shortcuts stay the same.
+- Preserve literal `<think>` tags in translations while rejecting unfinished leading reasoning.
+
 ## 0.6.0
 
 - Sign in with a [Mon](https://mon.sorrycc.dev) account, with GitHub or Google, from **Settings > Services**.

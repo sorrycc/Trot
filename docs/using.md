@@ -7,7 +7,7 @@ Trot sits in the menu bar. Three hotkeys open its panel; the menu bar icon offer
 The panel is one floating card. From top to bottom:
 
 - **Language chip**, such as `English → 简体中文`. The left side is the language Trot detected, or Auto, the right the target. Click it, or press ⌘L, to translate into another language.
-- **Service chip**, which switches the service for this and later translations. ⌘1 to ⌘5 pick one without the menu.
+- **Service chip**, which switches the service for this and later translations. ⌘1 to ⌘6 pick one without the menu.
 - **Pin** (⌘P), which keeps the panel open when you click elsewhere. Without it, a click in another app closes the panel.
 - **Close**, also Escape or ⌘W.
 - The **source text** and the **translation**, which streams in as the service produces it. Both are selectable. ⌘C with nothing selected copies the whole translation.
@@ -36,6 +36,10 @@ The first time Trot opens without a sign-in or a key for its service, it opens S
 Signed in, the Mon service translates through Mon's AI gateway, with no API key. A free account has 500,000 tokens a day and 10 requests a minute; over a limit, the panel says when to try again.
 
 Your settings also sync with the account, a couple of seconds after you change one, and whenever Trot is used or Settings opens, at most every 30 seconds: the languages, the service, the base URLs and models, and the shortcuts. API keys and the sign-in stay on each Mac. A setting changed on two Macs takes the value of the one that syncs last. The first time a Mac that has settings of its own syncs with an account that has some too, Trot asks whose to keep. When Mon can't be reached, Trot tries again, later and later, and Settings says why.
+
+## Local Index-Translate
+
+Choose **Settings > Services > Index-Translate** to use a local OpenAI-compatible inference server. No Mon sign-in or API key is required. The default URL is `http://127.0.0.1:8000/v1`; start your model server first. See [local setup and troubleshooting](index-translate.md). The panel shortcut is ⌘6. This service returns the completed translation at once rather than streaming tokens.
 
 ## Translating the selection (⌥D)
 
